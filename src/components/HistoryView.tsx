@@ -118,22 +118,20 @@ export default function HistoryView({ historyDays }: HistoryViewProps) {
             exit="exit"
             drag="x"
             dragConstraints={{ left: 0, right: 0 }}
-            dragElastic={
-              // Resist dragging on outer bounds, snap back
-              currentIndex === 0 && swipeDirection === "right"
-                ? 0.15
-                : currentIndex === historyDays.length - 1 && swipeDirection === "left"
-                ? 0.15
-                : 0.6
-            }
+            dragElastic={0.15}
             onDragEnd={(event, info) => {
-              if (info.offset.x < -80) {
-                handleSwipeLeft();
-              } else if (info.offset.x > 80) {
-                handleSwipeRight();
+              const swipedFarEnough = Math.abs(info.offset.x) > 60;
+              const swipedFastEnough = Math.abs(info.velocity.x) > 300;
+
+              if (swipedFarEnough || swipedFastEnough) {
+                if (info.offset.x < 0 || info.velocity.x < 0) {
+                  handleSwipeLeft();
+                } else {
+                  handleSwipeRight();
+                }
               }
             }}
-            className="w-full h-full cursor-grab active:cursor-grabbing"
+            className="w-full h-full cursor-grab active:cursor-grabbing touch-none"
             id={`history-animated-card-container-${currentDay.id}`}
           >
             <PostItCard

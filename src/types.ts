@@ -9,10 +9,15 @@ export interface Task {
   completed: boolean;
   completedAt: number | null;
   createdAt: number;
+  order: number;         // sort index
   style: {
     penColor: string;    // hex snapshot
     fontFamily: string;  // snapshot at task creation
   };
+  calendarTaskId?: string;
+  calendarEventId?: string;
+  time?: string;          // optional HH:MM time
+  reminderMinutes?: number; // default options: 10 | 30 | 60 | 1440
 }
 
 export interface Day {
@@ -33,4 +38,4 @@ export interface Settings {
   fontFamily: string;    // default, elegant, handwritten
 }
 
-export type AppView = "main" | "history" | "settings";
+export type AppView = "main" | "history" | "settings" | "profile";

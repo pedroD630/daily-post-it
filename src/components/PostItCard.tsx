@@ -6,36 +6,87 @@
 import React from "react";
 import { Day, Task } from "../types";
 import TaskItem from "./TaskItem";
+import { Reorder } from "motion/react";
 
 interface PostItCardProps {
   day: Day;
   onToggleComplete?: (id: string) => void;
   onTextChange?: (id: string, text: string) => void;
+  onTextChangeFinished?: (id: string, text: string) => void;
+  onTimeChange?: (id: string, time: string | undefined, reminderMinutes: number) => void;
   onDelete?: (id: string) => void;
+  onReorderTasks?: (tasks: Task[]) => void;
   readOnly?: boolean;
   activeDeleteId: string | null;
   setActiveDeleteId: (id: string | null) => void;
+  calendarEvents?: any[];
 }
 
 export default function PostItCard({
   day,
   onToggleComplete = (id: string) => {},
   onTextChange = (id: string, text: string) => {},
+  onTextChangeFinished,
+  onTimeChange,
   onDelete = (id: string) => {},
+  onReorderTasks,
   readOnly = false,
   activeDeleteId,
-  setActiveDeleteId
+  setActiveDeleteId,
+  calendarEvents = []
 }: PostItCardProps) {
-  // Sort tasks: Active/Incomplete on top, completed tasks at the bottom
-  const sortedTasks = [...day.tasks].sort((a, b) => {
-    if (a.completed !== b.completed) {
-      return a.completed ? 1 : -1;
-    }
-    // Retain creation order for identical completion status
-    return a.createdAt - b.createdAt;
-  });
+  // Separate and sort tasks by explicit order field, fallback to creation time
+  const incompleteTasks = day.tasks
+    .filter((t) => !t.completed)
+    .sort((a, b) => {
+      const orderA = a.order !== undefined ? a.order : 0;
+      const orderB = b.order !== undefined ? b.order : 0;
+      if (orderA !== orderB) return orderA - orderB;
+      return a.createdAt - b.createdAt;
+    });
 
-  // Calculate high contrast text or border details based on post-it background
+  const completedTasks = day.tasks
+    .filter((t) => t.completed)
+    .sort((a, b) => {
+      const orderA = a.order !== undefined ? a.order : 0;
+      const orderB = b.order !== undefined ? b.order : 0;
+      if (orderA !== orderB) return orderA - orderB;
+      return a.completedAt && b.completedAt
+        ? a.completedAt - b.completedAt
+        : a.createdAt - b.createdAt;
+    });
+
+  const handleReorderIncomplete = (newIncomplete: Task[]) => {
+    if (onReorderTasks) {
+      const reorderedIncomplete = newIncomplete.map((t, index) => ({
+        ...t,
+        order: index,
+      }));
+      const reorderedCompleted = completedTasks.map((t, index) => ({
+        ...t,
+        order: index,
+      }));
+      onReorderTasks([...reorderedIncomplete, ...reorderedCompleted]);
+    }
+  };
+
+  const handleReorderCompleted = (newCompleted: Task[]) => {
+    if (onReorderTasks) {
+      const reorderedIncomplete = incompleteTasks.map((t, index) => ({
+        ...t,
+        order: index,
+      }));
+      const reorderedCompleted = newCompleted.map((t, index) => ({
+        ...t,
+        order: index,
+      }));
+      onReorderTasks([...reorderedIncomplete, ...reorderedCompleted]);
+    }
+  };
+
+  // Combine them cleanly for read-only static rendering
+  const sortedTasks = [...incompleteTasks, ...completedTasks];
+
   const postItBgColor = day.style.postItColor || "#fef3c7";
 
   return (
@@ -48,14 +99,6 @@ export default function PostItCard({
         minHeight: "320px",
         height: "auto",
         overflowX: "hidden",
-
-        // 6-layer shadow system simulating curved paper lifted off the surface:
-        // Layer 1 — contact shadow (paper touching the desk at center)
-        // Layer 2 — mid elevation
-        // Layer 3+4 — lateral shadows: raised edges cast wider shadows on the sides
-        // Layer 5 — long diffuse shadow of elevated paper
-        // Layer 6 — top edge highlight (light coming from above)
-        // Layer 7+8 — inset side shadows (paper is not perfectly flat)
         boxShadow: `
           0 2px 3px rgba(0,0,0,0.12),
           0 6px 12px rgba(0,0,0,0.10),
@@ -68,7 +111,7 @@ export default function PostItCard({
         `,
       }}
     >
-      {/* Top Bar: Date display (monospace subtle) on left & badge on right */}
+      {/* Top Bar */}
       <div className="flex items-center justify-between pointer-events-none select-none mb-4" id="postit-card-topbar">
         <span
           id="postit-date-display"
@@ -89,12 +132,12 @@ export default function PostItCard({
         )}
       </div>
 
-      {/* Primary Task Area inside the Post-it (unbounded to grow with content) */}
+      {/* Primary Task Area */}
       <div
         id="postit-tasks-scrollcontainer"
         className="flex-1 overflow-visible pr-1 flex flex-col gap-1 select-text"
       >
-        {sortedTasks.length === 0 ? (
+        {day.tasks.length === 0 ? (
           <div
             id="postit-empty-state"
             className="flex-1 flex flex-col items-center justify-center text-center opacity-60 px-4 pointer-events-none select-none py-10"
@@ -108,29 +151,114 @@ export default function PostItCard({
               </p>
             )}
           </div>
-        ) : (
-          sortedTasks.map((task, index) => {
-            // Check if the task is newly created in this session (created within past 2 seconds and text is empty)
-            const isNew = !readOnly && !task.text && (Date.now() - task.createdAt < 2000);
-            
-            return (
+        ) : readOnly ? (
+          <div className="flex flex-col gap-1 w-full">
+            {sortedTasks.map((task) => (
               <TaskItem
                 key={task.id}
                 task={task}
                 onToggleComplete={onToggleComplete}
                 onTextChange={onTextChange}
+                onTextChangeFinished={onTextChangeFinished}
+                onTimeChange={onTimeChange}
                 onDelete={onDelete}
                 readOnly={readOnly}
-                isNew={isNew}
+                isNew={false}
                 activeDeleteId={activeDeleteId}
                 setActiveDeleteId={setActiveDeleteId}
               />
-            );
-          })
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4 w-full">
+            {incompleteTasks.length > 0 && (
+              <Reorder.Group
+                axis="y"
+                values={incompleteTasks}
+                onReorder={handleReorderIncomplete}
+                as="div"
+                className="flex flex-col gap-1 w-full"
+              >
+                {incompleteTasks.map((task) => {
+                  const isNew = !task.text && Date.now() - task.createdAt < 2000;
+                  return (
+                    <TaskItem
+                      key={task.id}
+                      task={task}
+                      onToggleComplete={onToggleComplete}
+                      onTextChange={onTextChange}
+                      onTextChangeFinished={onTextChangeFinished}
+                      onTimeChange={onTimeChange}
+                      onDelete={onDelete}
+                      readOnly={readOnly}
+                      isNew={isNew}
+                      activeDeleteId={activeDeleteId}
+                      setActiveDeleteId={setActiveDeleteId}
+                    />
+                  );
+                })}
+              </Reorder.Group>
+            )}
+
+            {completedTasks.length > 0 && (
+              <div className="flex flex-col gap-2 pt-3 border-t border-black/10">
+                <span className="text-[10px] uppercase font-mono tracking-wider opacity-45 pl-1 select-none">
+                  Completed Section
+                </span>
+                <Reorder.Group
+                  axis="y"
+                  values={completedTasks}
+                  onReorder={handleReorderCompleted}
+                  as="div"
+                  className="flex flex-col gap-1 w-full"
+                >
+                  {completedTasks.map((task) => (
+                    <TaskItem
+                      key={task.id}
+                      task={task}
+                      onToggleComplete={onToggleComplete}
+                      onTextChange={onTextChange}
+                      onTextChangeFinished={onTextChangeFinished}
+                      onTimeChange={onTimeChange}
+                      onDelete={onDelete}
+                      readOnly={readOnly}
+                      isNew={false}
+                      activeDeleteId={activeDeleteId}
+                      setActiveDeleteId={setActiveDeleteId}
+                    />
+                  ))}
+                </Reorder.Group>
+              </div>
+            )}
+
+            {calendarEvents && calendarEvents.length > 0 && (
+              <div className="flex flex-col gap-2 pt-3 mt-3 border-t border-dashed border-black/15 select-none" id="postit-google-calendar-block">
+                <span className="text-[10px] uppercase font-mono tracking-wider opacity-40 pl-1 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  Today's Google Calendar Events
+                </span>
+                <div className="flex flex-col gap-1.5 pl-1.5 text-stone-700/90 font-serif text-xs leading-normal">
+                  {calendarEvents.slice(0, 5).map((evt: any) => {
+                    const timeStr = evt.start?.dateTime
+                      ? new Date(evt.start.dateTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                      : "All Day";
+                    return (
+                      <div key={evt.id} className="flex items-center justify-between gap-2 max-w-full">
+                        <span className="truncate flex-1 tracking-tight" style={{ fontFamily: "inherit" }}>
+                          ✦ {evt.summary}
+                        </span>
+                        <span className="font-mono text-[9px] opacity-60 text-stone-500 border border-black/5 bg-black/[0.01] px-1 rounded hover:opacity-100 shrink-0">
+                          {timeStr}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
-
-
     </div>
   );
 }

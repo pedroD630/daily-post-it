@@ -1,0 +1,18 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default catch-all denies everything else
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Secure users namespace where the path parameter itself verifies identity
+    match /users/{userId} {
+      allow get, list, create, update, delete: if request.auth != null && request.auth.uid == userId;
+
+      match /days/{dayId} {
+        allow get, list, create, update, delete: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+  }
+}

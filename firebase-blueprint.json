@@ -1,0 +1,43 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile document",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "email"]
+    },
+    "Day": {
+      "title": "Day",
+      "description": "Daily post-it note including task list and custom styles",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "date": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "discarded": { "type": "boolean" },
+        "discardedAt": { "type": "number" },
+        "style": { "type": "object" },
+        "tasks": { "type": "array" }
+      },
+      "required": ["id", "userId", "date", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "User profile resource"
+    },
+    "users/{userId}/days/{dayId}": {
+      "schema": "Day",
+      "description": "User's daily post-it documents"
+    }
+  }
+}
