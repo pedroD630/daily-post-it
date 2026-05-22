@@ -1,0 +1,6 @@
+{
+  "name": "Daily Post-it",
+  "description": "Daily Post-it is a tactile, physical task manager that gives you a single virtual sticky note per day.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

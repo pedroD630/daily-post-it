@@ -1,0 +1,421 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect, useRef } from "react";
+import { Settings as SettingsType, AppView } from "../types";
+import { POST_IT_PRESETS, PEN_PRESETS } from "../constants/colors";
+import { Save, AlertCircle, Settings as SettingsIcon } from "lucide-react";
+
+interface SettingsViewProps {
+  initialSettings: SettingsType;
+  onSave: (settings: SettingsType) => void;
+  onCancel: () => void;
+  // A callback to update parent state in real time as the user drags
+  onColorChangeLive: (color: string) => void;
+}
+
+// HSL to hex converter
+function hslToHex(h: number, s: number, l: number): string {
+  l /= 100;
+  const a = (s * Math.min(l, 1 - l)) / 100;
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+    return Math.round(255 * color).toString(16).padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+
+// Hex to HSL parser
+function hexToHsl(hex: string): { h: number; s: number; l: number } {
+  hex = hex.replace(/^#/, "");
+  if (hex.length === 3) {
+    hex = hex.split("").map((x) => x + x).join("");
+  }
+  let r = parseInt(hex.slice(0, 2), 16) / 255;
+  let g = parseInt(hex.slice(2, 4), 16) / 255;
+  let b = parseInt(hex.slice(4, 6), 16) / 255;
+
+  if (isNaN(r) || isNaN(g) || isNaN(b)) {
+    return { h: 48, s: 100, l: 92 }; // fallback yellow
+  }
+
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let h = 0;
+  let s = 0;
+  let l = (max + min) / 2;
+
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r:
+        h = (g - b) / d + (g < b ? 6 : 0);
+        break;
+      case g:
+        h = (b - r) / d + 2;
+        break;
+      case b:
+        h = (r - g) / d + 4;
+        break;
+    }
+    h /= 6;
+  }
+  return {
+    h: Math.round(h * 360),
+    s: Math.round(s * 100),
+    l: Math.round(l * 100),
+  };
+}
+
+export default function SettingsView({
+  initialSettings,
+  onSave,
+  onCancel,
+  onColorChangeLive,
+}: SettingsViewProps) {
+  const [selectedPostItColor, setSelectedPostItColor] = useState(initialSettings.postItColor);
+  const [selectedPenColor, setSelectedPenColor] = useState(initialSettings.penColor);
+  const [selectedFont, setSelectedFont] = useState(initialSettings.fontFamily);
+  
+  const [hexInput, setHexInput] = useState(initialSettings.postItColor);
+  const [isHexError, setIsHexError] = useState(false);
+
+  const wheelRef = useRef<HTMLDivElement>(null);
+  const [isWheelDragging, setIsWheelDragging] = useState(false);
+
+  // Position coordinates of selecting indicator dot on color wheel
+  const [dotPos, setDotPos] = useState({ x: 88, y: 88 }); // central offset
+
+  // Refresh picker selector dot position based on selected post-it color
+  useEffect(() => {
+    const { h, s } = hexToHsl(selectedPostItColor);
+    const radius = 80; // half of wheel width minus padding
+    const angleRad = (h * Math.PI) / 180;
+    
+    // Scale distance based on saturation
+    const dist = (s / 100) * radius;
+    // Align with 12 o'clock starting position of the conic gradient (rotating clockwise):
+    const x = 88 + dist * Math.sin(angleRad);
+    const y = 88 - dist * Math.cos(angleRad);
+    
+    setDotPos({ x, y });
+  }, [selectedPostItColor]);
+
+  // Live updates hex input if color changes
+  useEffect(() => {
+    setHexInput(selectedPostItColor);
+    setIsHexError(false);
+  }, [selectedPostItColor]);
+
+  // Handler for custom dragging on color wheel
+  const handleColorWheelInteraction = (clientX: number, clientY: number) => {
+    const wheel = wheelRef.current;
+    if (!wheel) return;
+
+    const rect = wheel.getBoundingClientRect();
+    const cx = rect.width / 2;
+    const cy = rect.height / 2;
+
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+
+    const dx = x - cx;
+    const dy = y - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    
+    const maxRadius = cx - 8; // clamp boundary padding
+
+    // Angle of selection starting at 12 o'clock and moving clockwise:
+    let angleDeg = (Math.atan2(dx, -dy) * 180) / Math.PI;
+    if (angleDeg < 0) angleDeg += 360;
+
+    // Saturation level (distance from center)
+    const sat = Math.round(Math.min((dist / maxRadius) * 100, 100));
+
+    // Maintain vibrant yet pastel tones
+    const finalLightness = 72; 
+
+    // Convert selection coordinates to pastel hex
+    const finalHex = hslToHex(angleDeg, sat, finalLightness);
+    
+    setSelectedPostItColor(finalHex);
+    onColorChangeLive(finalHex);
+  };
+
+  // Drag listeners on Window level for smooth visual tracker mapping
+  useEffect(() => {
+    const handleGlobalMove = (e: MouseEvent) => {
+      if (isWheelDragging) {
+        handleColorWheelInteraction(e.clientX, e.clientY);
+      }
+    };
+
+    const handleGlobalUp = () => {
+      if (isWheelDragging) {
+        setIsWheelDragging(false);
+      }
+    };
+
+    const handleGlobalTouchMove = (e: TouchEvent) => {
+      if (isWheelDragging && e.touches.length > 0) {
+        const touch = e.touches[0];
+        handleColorWheelInteraction(touch.clientX, touch.clientY);
+      }
+    };
+
+    window.addEventListener("mousemove", handleGlobalMove);
+    window.addEventListener("mouseup", handleGlobalUp);
+    window.addEventListener("touchmove", handleGlobalTouchMove);
+    window.addEventListener("touchend", handleGlobalUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleGlobalMove);
+      window.removeEventListener("mouseup", handleGlobalUp);
+      window.removeEventListener("touchmove", handleGlobalTouchMove);
+      window.removeEventListener("touchend", handleGlobalUp);
+    };
+  }, [isWheelDragging]);
+
+  // User Preset Swatches Click
+  const handlePresetSelect = (hex: string) => {
+    setSelectedPostItColor(hex);
+    onColorChangeLive(hex);
+  };
+
+  // Keyboard hex field change fallback
+  const handleHexInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setHexInput(value);
+
+    // Parse values like "#abc", "abc", "#abcdef", "abcdef"
+    const hexPattern = /^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+    if (hexPattern.test(value)) {
+      setIsHexError(false);
+      let formatted = value;
+      if (!formatted.startsWith("#")) {
+        formatted = "#" + formatted;
+      }
+      setSelectedPostItColor(formatted.toLowerCase());
+      onColorChangeLive(formatted.toLowerCase());
+    } else {
+      setIsHexError(true);
+    }
+  };
+
+  // Save Settings Clicked
+  const handleSaveClick = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isHexError) return;
+
+    onSave({
+      postItColor: selectedPostItColor,
+      penColor: selectedPenColor,
+      fontFamily: selectedFont,
+    });
+  };
+
+  return (
+    <form
+      onSubmit={handleSaveClick}
+      id="settings-container-form"
+      className="w-full max-w-md mx-auto py-6 px-4 select-none"
+    >
+      {/* Translucent Frosted Glass Card Panel */}
+      <div
+        id="settings-card-panel"
+        className="w-full bg-white/80 dark:bg-slate-900/80 backdrop-blur-lg border border-white/40 dark:border-slate-800/40 rounded-3xl p-6 md:p-8 flex flex-col gap-6"
+        style={{
+          boxShadow: "0 20px 40px rgba(0, 0, 0, 0.08)"
+        }}
+      >
+        {/* Title */}
+        <div className="flex items-center gap-2.5 pb-2 border-b border-slate-200/50" id="settings-header">
+          <SettingsIcon className="w-5 h-5 text-slate-600 dark:text-slate-300 animate-spin-slow" />
+          <h2 className="font-sans font-bold text-lg text-slate-800 dark:text-slate-100">
+            Appearance
+          </h2>
+        </div>
+
+        {/* Section 1: Preset Colors Selection */}
+        <div className="flex flex-col gap-2" id="settings-section-postitcolor">
+          <label className="font-sans text-xs font-bold uppercase tracking-wider text-slate-500">
+            Post-it Color
+          </label>
+          <div className="flex items-center gap-3 py-1" id="settings-preset-colors-row">
+            {POST_IT_PRESETS.map((preset) => (
+              <button
+                id={`preset-color-${preset.name}`}
+                key={preset.name}
+                type="button"
+                aria-label={`Select ${preset.name} Background`}
+                onClick={() => handlePresetSelect(preset.hex)}
+                className={`w-9 h-9 rounded-full border-2 transition-all cursor-pointer shadow-sm shrink-0 hover:scale-105 active:scale-95 ${
+                  selectedPostItColor === preset.hex
+                    ? "border-slate-800 scale-105 shadow"
+                    : "border-transparent"
+                }`}
+                style={{ backgroundColor: preset.hex }}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Custom Visual HSL Color Wheel with Conic Gradient */}
+        <div className="flex flex-col items-center justify-center gap-4 bg-slate-50/50 dark:bg-slate-950/20 py-5 rounded-2xl border border-slate-100" id="color-wheel-wrapper">
+          <div
+            id="color-wheel-ring"
+            ref={wheelRef}
+            onMouseDown={(e) => {
+              setIsWheelDragging(true);
+              handleColorWheelInteraction(e.clientX, e.clientY);
+            }}
+            onTouchStart={(e) => {
+              setIsWheelDragging(true);
+              const touch = e.touches[0];
+              handleColorWheelInteraction(touch.clientX, touch.clientY);
+            }}
+            className="relative w-44 h-44 rounded-full border-4 border-white dark:border-slate-800 shadow-lg cursor-crosshair overflow-hidden touch-none"
+            style={{
+              // conic-gradient and radial-gradient combined to render a pastel wheel palette
+              background: `
+                radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(255,255,255,0.1) 85%, rgba(255,255,255,0) 100%),
+                conic-gradient(from 0deg, #ff9999, #ffff99, #99ff99, #99ffff, #9999ff, #ff99ff, #ff9999)
+              `,
+            }}
+          >
+            {/* Visual Selector Dot indicator */}
+            <div
+              id="color-wheel-picker-dot"
+              className="absolute w-5 h-5 -mt-2.5 -ml-2.5 rounded-full border-2 border-slate-800 bg-white shadow-md pointer-events-none transition-[width,height] active:w-6 active:h-6"
+              style={{
+                left: `${dotPos.x}px`,
+                top: `${dotPos.y}px`,
+              }}
+            />
+          </div>
+
+          {/* Color Live Preview & Manual Hex Fallback Form Input */}
+          <div className="flex items-center gap-3 w-full px-5" id="color-wheel-preview-row">
+            {/* Live preview dot */}
+            <div
+              id="color-wheel-preview-dot"
+              aria-hidden="true"
+              className="w-10 h-10 rounded-xl border border-slate-200 shadow-md shrink-0 transition-colors duration-200"
+              style={{ backgroundColor: selectedPostItColor }}
+            />
+
+            {/* Hex fallback input with label for keyboards */}
+            <div className="flex-1 flex flex-col gap-1" id="hex-fallback-input-container">
+              <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wide">
+                Hex Code Fallback
+              </span>
+              <div className="relative">
+                <input
+                  id="settings-color-input-hex"
+                  type="text"
+                  maxLength={7}
+                  className={`w-full font-mono text-sm px-3 py-1.5 rounded-lg border bg-white dark:bg-slate-900 focus:outline-none ${
+                    isHexError
+                      ? "border-red-400 focus:ring-1 focus:ring-red-400 text-red-500"
+                      : "border-slate-200 dark:border-slate-800 focus:ring-1 focus:ring-slate-400 dark:focus:ring-slate-600 text-slate-800 dark:text-slate-100"
+                  }`}
+                  value={hexInput}
+                  onChange={handleHexInputChange}
+                  placeholder="#fef3c7"
+                  aria-label="Hex color fallback value"
+                />
+                {isHexError && (
+                  <AlertCircle className="w-4 h-4 text-red-500 absolute right-2.5 top-1/2 -translate-y-1/2" />
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Section 2: Pen Color (3 presets) */}
+        <div className="flex flex-col gap-2" id="settings-section-pencolor">
+          <label className="font-sans text-xs font-bold uppercase tracking-wider text-slate-500">
+            Pen Color
+          </label>
+          <div className="flex items-center gap-4 py-1" id="settings-pen-presets-row">
+            {PEN_PRESETS.map((pen) => (
+              <button
+                id={`pen-color-${pen.label}`}
+                key={pen.label}
+                type="button"
+                aria-label={`Select ${pen.label} Ink`}
+                onClick={() => setSelectedPenColor(pen.hex)}
+                className={`w-8 h-8 rounded-full border-2 transition-transform cursor-pointer shadow-sm relative shrink-0 hover:scale-105 active:scale-95 flex items-center justify-center ${
+                  selectedPenColor === pen.hex
+                    ? "border-slate-800 bg-slate-50 dark:bg-slate-800 scale-105"
+                    : "border-slate-200 dark:border-slate-800 bg-transparent"
+                }`}
+              >
+                <div
+                  className="w-4 h-4 rounded-full"
+                  style={{ backgroundColor: pen.hex }}
+                />
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Section 3: Typography Selection */}
+        <div className="flex flex-col gap-2" id="settings-section-font">
+          <label className="font-sans text-xs font-bold uppercase tracking-wider text-slate-500">
+            Pen Font Family
+          </label>
+          <select
+            id="settings-select-font-family"
+            aria-label="Choose font style"
+            className="w-full text-sm px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-400 dark:focus:ring-slate-600 text-slate-800 dark:text-slate-100 shadow-sm cursor-pointer"
+            value={selectedFont}
+            onChange={(e) => setSelectedFont(e.target.value)}
+          >
+            <option value="sans-serif" className="font-default py-2" id="font-option-sans">
+              Default Sans-serif (Arial)
+            </option>
+            <option value="serif" className="font-elegant py-2" id="font-option-serif">
+              Elegant Serif (Times)
+            </option>
+            <option value="cursive" className="font-handwritten py-2" id="font-option-handwritten">
+              Handwritten (Gloria Hallelujah)
+            </option>
+          </select>
+        </div>
+
+        {/* Action Form Footer (Save & cancel buttons) */}
+        <div className="flex items-center gap-3 pt-4 border-t border-slate-200/50" id="settings-actions">
+          <button
+            id="settings-btn-cancel"
+            type="button"
+            aria-label="Cancel changes"
+            onClick={onCancel}
+            className="flex-1 text-center py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold text-sm transition-all shadow-sm cursor-pointer"
+          >
+            Cancel
+          </button>
+          
+          <button
+            id="settings-btn-submit"
+            type="submit"
+            aria-label="Save changes"
+            disabled={isHexError}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-semibold text-sm transition-all shadow text-white cursor-pointer ${
+              isHexError
+                ? "bg-slate-300 pointer-events-none"
+                : "bg-slate-800 hover:bg-slate-900 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white"
+            }`}
+          >
+            <Save className="w-4 h-4" />
+            <span>Save</span>
+          </button>
+        </div>
+      </div>
+    </form>
+  );
+}

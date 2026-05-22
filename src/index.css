@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Custom CSS font helpers matching PRD specifications */
+.font-default {
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.font-elegant {
+  font-family: Georgia, 'Times New Roman', serif;
+}
+
+.font-handwritten {
+  font-family: 'Gloria Hallelujah', cursive;
+}
+
+/* Shake animation for Task Delete mode */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+.animate-shake {
+  animation: shake 0.2s ease-in-out infinite;
+}
+
+/* Typewriter line entrance effect */
+@keyframes typewriter {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+.animate-typewriter {
+  animation: typewriter 0.3s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* Smooth background color transitions */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: #fcf6e8;
+  transition: background-color 0.4s ease;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Hide scrollbars for a clean app feel */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* Touch targets & utility defaults */
+input, button, select {
+  touch-action: manipulation;
+}
+
+/* Paper grain texture using inline SVG noise filter */
+.postit-paper-texture {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+}
+
+/* Curvature lighting: bright top-left → dark bottom-right */
+.postit-curved-light {
+  position: relative;
+}
+
+.postit-curved-light::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 1;
+  background: linear-gradient(
+    170deg,
+    rgba(255,255,255,0.35) 0%,
+    rgba(255,255,255,0.08) 35%,
+    rgba(0,0,0,0.00) 60%,
+    rgba(0,0,0,0.04) 100%
+  );
+}
+
+/* Ensure content sits above the overlay */
+.postit-curved-light > * {
+  position: relative;
+  z-index: 2;
+}
+
