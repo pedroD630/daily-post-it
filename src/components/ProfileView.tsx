@@ -59,15 +59,12 @@ export default function ProfileView({
     };
   }, [currentUser, calendarConnected]);
 
-  const handleLogin = async () => {
+  const handleLogin = () => {
     setIsLoggingIn(true);
-    try {
-      await googleSignIn();
-      // The page redirects - no further code runs here
-    } catch (err) {
+    googleSignIn().catch((err) => {
       console.error("Login failed:", err);
       setIsLoggingIn(false);
-    }
+    });
   };
 
   const handleSignOut = async () => {

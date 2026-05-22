@@ -87,23 +87,25 @@ export const initAuth = (
   };
 };
 
-export const googleSignIn = async (): Promise<void> => {
-  try {
-    isSigningIn = true;
-    const result = await signInWithPopup(auth, provider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (credential?.accessToken) {
-      cachedAccessToken = credential.accessToken;
-      localStorage.setItem("google_access_token", credential.accessToken);
-      setCalendarExpired(false);
-      authListeners.forEach((lis) => lis(result.user, cachedAccessToken));
-    }
-  } catch (err) {
-    console.error("Firebase Google Sign-In error:", err);
-    throw err;
-  } finally {
-    isSigningIn = false;
-  }
+export const googleSignIn = (): Promise<void> => {
+  isSigningIn = true;
+  return signInWithPopup(auth, provider)
+    .then((result) => {
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        cachedAccessToken = credential.accessToken;
+        localStorage.setItem("google_access_token", credential.accessToken);
+        setCalendarExpired(false);
+        authListeners.forEach((lis) => lis(result.user, cachedAccessToken));
+      }
+    })
+    .catch((err) => {
+      console.error("Firebase Google Sign-In error:", err);
+      throw err;
+    })
+    .finally(() => {
+      isSigningIn = false;
+    });
 };
 
 export const logout = async () => {
