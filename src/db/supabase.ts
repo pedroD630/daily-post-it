@@ -1,12 +1,29 @@
 import { createClient } from "@supabase/supabase-js";
+import { getAuth } from "firebase/auth";
 import { Day, Task } from "../types";
 
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || "";
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || "";
 
-// Graceful client creation to prevent startup failures for clients who haven't set up credentials yet
+// Authenticated client: forwards the Firebase ID token on every request so
+// Supabase RLS policies can match auth.jwt()->>'sub' against user_id.
 export const supabase = supabaseUrl && supabaseAnonKey
-  ? createClient(supabaseUrl, supabaseAnonKey)
+  ? createClient(supabaseUrl, supabaseAnonKey, {
+      accessToken: async () => {
+        try {
+          const user = getAuth().currentUser;
+          if (!user) return null;
+          return await user.getIdToken();
+        } catch {
+          return null;
+        }
+      },
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false
+      }
+    })
   : null;
 
 /**
