@@ -8,20 +8,19 @@ import {
   signOut
 } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
-import firebaseConfigJson from "../../firebase-applet-config.json";
 import { Day } from "../types";
 import { saveDay } from "./index";
 import { syncDayToSupabase } from "./supabase";
 
-// Graceful fallback for Firebase Configurations using environment variables
+// Configuration strictly resolved via environment variables
 const firebaseConfig = {
-  apiKey: (import.meta as any).env.VITE_FIREBASE_API_KEY || firebaseConfigJson.apiKey,
-  projectId: (import.meta as any).env.VITE_FIREBASE_PROJECT_ID || firebaseConfigJson.projectId,
-  appId: (import.meta as any).env.VITE_FIREBASE_APP_ID || firebaseConfigJson.appId,
-  authDomain: (import.meta as any).env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfigJson.authDomain,
-  storageBucket: (import.meta as any).env.VITE_FIREBASE_STORAGE_BUCKET || (firebaseConfigJson as any).storageBucket,
-  messagingSenderId: (import.meta as any).env.VITE_FIREBASE_MESSAGING_SENDER_ID || (firebaseConfigJson as any).messagingSenderId,
-  measurementId: (import.meta as any).env.VITE_FIREBASE_MEASUREMENT_ID || (firebaseConfigJson as any).measurementId,
+  apiKey: (import.meta as any).env.VITE_FIREBASE_API_KEY,
+  projectId: (import.meta as any).env.VITE_FIREBASE_PROJECT_ID,
+  appId: (import.meta as any).env.VITE_FIREBASE_APP_ID,
+  authDomain: (import.meta as any).env.VITE_FIREBASE_AUTH_DOMAIN,
+  storageBucket: (import.meta as any).env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: (import.meta as any).env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  measurementId: (import.meta as any).env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
 const app = initializeApp(firebaseConfig);
