@@ -1,7 +1,8 @@
 import { initializeApp } from "firebase/app";
 import {
   getAuth,
-  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider,
   onAuthStateChanged,
   User,
@@ -69,6 +70,19 @@ onAuthStateChanged(auth, async (user) => {
   }
 });
 
+// Fora do initAuth — executa UMA vez quando o módulo é importado
+getRedirectResult(auth).then((result) => {
+  if (result) {
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (credential?.accessToken) {
+      cachedAccessToken = credential.accessToken;
+      authListeners.forEach((lis) => lis(result.user, cachedAccessToken));
+    }
+  }
+}).catch((err) => {
+  console.error("Redirect result error:", err);
+});
+
 export const initAuth = (
   onAuthChange: (user: User | null, token: string | null) => void
 ) => {
@@ -80,6 +94,13 @@ export const initAuth = (
   };
 };
 
+
+export const googleSignIn = async (): Promise<void> => {
+  await signInWithRedirect(auth, provider);
+  // A página vai redirecionar para o Google e voltar automaticamente
+};
+
+/*
 export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
   try {
     isSigningIn = true;
@@ -99,7 +120,7 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
   } finally {
     isSigningIn = false;
   }
-};
+};*/
 
 export const logout = async () => {
   await signOut(auth);
