@@ -1,8 +1,7 @@
 import { initializeApp } from "firebase/app";
 import {
   getAuth,
-  signInWithRedirect,
-  getRedirectResult,
+  signInWithPopup,
   GoogleAuthProvider,
   onAuthStateChanged,
   User,
@@ -76,22 +75,6 @@ onAuthStateChanged(auth, async (user) => {
   }
 });
 
-// Process login redirect outcome
-if (typeof window !== "undefined") {
-  getRedirectResult(auth).then((result) => {
-    if (result) {
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (credential?.accessToken) {
-        cachedAccessToken = credential.accessToken;
-        localStorage.setItem("google_access_token", credential.accessToken);
-        setCalendarExpired(false); // Reset expired state on fresh login
-        authListeners.forEach((lis) => lis(result.user, cachedAccessToken));
-      }
-    }
-  }).catch((err) => {
-    console.error("Redirect result error:", err);
-  });
-}
 
 export const initAuth = (
   onAuthChange: (user: User | null, token: string | null) => void
@@ -107,7 +90,14 @@ export const initAuth = (
 export const googleSignIn = async (): Promise<void> => {
   try {
     isSigningIn = true;
-    await signInWithRedirect(auth, provider);
+    const result = await signInWithPopup(auth, provider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (credential?.accessToken) {
+      cachedAccessToken = credential.accessToken;
+      localStorage.setItem("google_access_token", credential.accessToken);
+      setCalendarExpired(false);
+      authListeners.forEach((lis) => lis(result.user, cachedAccessToken));
+    }
   } catch (err) {
     console.error("Firebase Google Sign-In error:", err);
     throw err;
