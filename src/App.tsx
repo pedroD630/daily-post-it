@@ -229,9 +229,10 @@ export default function App() {
       try {
         const todayId = getTodayId();
         
-        // Prepare today's card snapshot marked as discarded
+        // Prepare today's card snapshot marked as discarded with a unique ID
         const discardedDay: Day = {
           ...todayDay,
+          id: `${todayId}_discarded_${Date.now()}`,
           discarded: true,
           discardedAt: Date.now(),
         };
@@ -303,9 +304,10 @@ export default function App() {
     setCurrentView("main");
   };
 
-  // Filter history: Previous days notes only (today card excluded)
+  // Filter history: Previous days notes only (today card excluded). Also omit empty days unless discarded
   const historyDays = allDaysList
     .filter((day) => day.id !== getTodayId())
+    .filter((day) => day.tasks.length > 0 || day.discarded)
     .sort((a, b) => b.id.localeCompare(a.id));
 
   // Determine transition animations representing sliding paper sheets displacing
