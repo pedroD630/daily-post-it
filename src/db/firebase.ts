@@ -17,7 +17,7 @@ const firebaseConfig = {
   apiKey: (import.meta as any).env.VITE_FIREBASE_API_KEY || "AIzaSyAjCaP5heR61ILNLRUld9o-nl6LHAocwPQ",
   projectId: (import.meta as any).env.VITE_FIREBASE_PROJECT_ID || "gen-lang-client-0678919214",
   appId: (import.meta as any).env.VITE_FIREBASE_APP_ID || "1:157708262678:web:b197c75798d31a0b6ec437",
-  authDomain: (import.meta as any).env.VITE_FIREBASE_AUTH_DOMAIN || "gen-lang-client-0678919214.firebaseapp.com",
+  authDomain: (import.meta as any).env.VITE_FIREBASE_AUTH_DOMAIN || (typeof window !== "undefined" ? window.location.hostname : "gen-lang-client-0678919214.firebaseapp.com"),
   storageBucket: (import.meta as any).env.VITE_FIREBASE_STORAGE_BUCKET || "gen-lang-client-0678919214.firebasestorage.app",
   messagingSenderId: (import.meta as any).env.VITE_FIREBASE_MESSAGING_SENDER_ID || "157708262678",
   measurementId: (import.meta as any).env.VITE_FIREBASE_MEASUREMENT_ID || "",
