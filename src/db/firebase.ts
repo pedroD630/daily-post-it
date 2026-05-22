@@ -13,15 +13,15 @@ import { Day } from "../types";
 import { saveDay } from "./index";
 import { syncDayToSupabase } from "./supabase";
 
-// Configuration strictly resolved via environment variables
+// Configuration resolved via environment variables, defaulting to applet credentials
 const firebaseConfig = {
-  apiKey: (import.meta as any).env.VITE_FIREBASE_API_KEY,
-  projectId: (import.meta as any).env.VITE_FIREBASE_PROJECT_ID,
-  appId: (import.meta as any).env.VITE_FIREBASE_APP_ID,
-  authDomain: (import.meta as any).env.VITE_FIREBASE_AUTH_DOMAIN,
-  storageBucket: (import.meta as any).env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: (import.meta as any).env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  measurementId: (import.meta as any).env.VITE_FIREBASE_MEASUREMENT_ID,
+  apiKey: (import.meta as any).env.VITE_FIREBASE_API_KEY || "AIzaSyAjCaP5heR61ILNLRUld9o-nl6LHAocwPQ",
+  projectId: (import.meta as any).env.VITE_FIREBASE_PROJECT_ID || "gen-lang-client-0678919214",
+  appId: (import.meta as any).env.VITE_FIREBASE_APP_ID || "1:157708262678:web:b197c75798d31a0b6ec437",
+  authDomain: (import.meta as any).env.VITE_FIREBASE_AUTH_DOMAIN || "gen-lang-client-0678919214.firebaseapp.com",
+  storageBucket: (import.meta as any).env.VITE_FIREBASE_STORAGE_BUCKET || "gen-lang-client-0678919214.firebasestorage.app",
+  messagingSenderId: (import.meta as any).env.VITE_FIREBASE_MESSAGING_SENDER_ID || "157708262678",
+  measurementId: (import.meta as any).env.VITE_FIREBASE_MEASUREMENT_ID || "",
 };
 
 const app = initializeApp(firebaseConfig);
@@ -35,7 +35,7 @@ provider.addScope("https://www.googleapis.com/auth/calendar.readonly");
 provider.addScope("https://www.googleapis.com/auth/tasks");
 
 let isSigningIn = false;
-let cachedAccessToken: string | null = null;
+let cachedAccessToken: string | null = typeof window !== "undefined" ? localStorage.getItem("google_access_token") : null;
 let cachedCalendarSyncEnabled = true;
 
 // Expiry Alert Subsystem
@@ -64,24 +64,34 @@ const authListeners: Set<(user: User | null, token: string | null) => void> = ne
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
     cachedAccessToken = null;
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("google_access_token");
+    }
     authListeners.forEach((lis) => lis(null, null));
   } else {
+    if (!cachedAccessToken && typeof window !== "undefined") {
+      cachedAccessToken = localStorage.getItem("google_access_token");
+    }
     authListeners.forEach((lis) => lis(user, cachedAccessToken));
   }
 });
 
-// Fora do initAuth — executa UMA vez quando o módulo é importado
-getRedirectResult(auth).then((result) => {
-  if (result) {
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (credential?.accessToken) {
-      cachedAccessToken = credential.accessToken;
-      authListeners.forEach((lis) => lis(result.user, cachedAccessToken));
+// Process login redirect outcome
+if (typeof window !== "undefined") {
+  getRedirectResult(auth).then((result) => {
+    if (result) {
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        cachedAccessToken = credential.accessToken;
+        localStorage.setItem("google_access_token", credential.accessToken);
+        setCalendarExpired(false); // Reset expired state on fresh login
+        authListeners.forEach((lis) => lis(result.user, cachedAccessToken));
+      }
     }
-  }
-}).catch((err) => {
-  console.error("Redirect result error:", err);
-});
+  }).catch((err) => {
+    console.error("Redirect result error:", err);
+  });
+}
 
 export const initAuth = (
   onAuthChange: (user: User | null, token: string | null) => void
@@ -94,37 +104,24 @@ export const initAuth = (
   };
 };
 
-
 export const googleSignIn = async (): Promise<void> => {
-  await signInWithRedirect(auth, provider);
-  // A página vai redirecionar para o Google e voltar automaticamente
-};
-
-/*
-export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, provider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      throw new Error("Failed to retrieve Google Access Token.");
-    }
-    cachedAccessToken = credential.accessToken;
-    setCalendarExpired(false); // Reset expired state on fresh login
-    
-    authListeners.forEach((lis) => lis(result.user, cachedAccessToken));
-    return { user: result.user, accessToken: cachedAccessToken };
+    await signInWithRedirect(auth, provider);
   } catch (err) {
     console.error("Firebase Google Sign-In error:", err);
     throw err;
   } finally {
     isSigningIn = false;
   }
-};*/
+};
 
 export const logout = async () => {
   await signOut(auth);
   cachedAccessToken = null;
+  if (typeof window !== "undefined") {
+    localStorage.removeItem("google_access_token");
+  }
   setCalendarExpired(false);
 };
 

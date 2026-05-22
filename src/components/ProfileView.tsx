@@ -62,17 +62,10 @@ export default function ProfileView({
   const handleLogin = async () => {
     setIsLoggingIn(true);
     try {
-      const result = await googleSignIn();
-      if (result) {
-        setCalendarConnectedState(true);
-        setCalendarConnected(true);
-        // Sync & reload data down
-        await onRefreshData();
-        setLastSyncedStr("Synced just now");
-      }
+      await googleSignIn();
+      // The page redirects - no further code runs here
     } catch (err) {
       console.error("Login failed:", err);
-    } finally {
       setIsLoggingIn(false);
     }
   };
