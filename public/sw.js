@@ -3,93 +3,111 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-const CACHE_NAME = "daily-postit-v1";
-const ASSETS_TO_CACHE = [
-  "/",
-  "/index.html",
+// Bump this version on any change that should bust the SW cache.
+// The build hash in /assets/* file names already busts code/CSS caches automatically.
+const SW_VERSION = "v3";
+const RUNTIME_CACHE = `daily-postit-runtime-${SW_VERSION}`;
+const PRECACHE = `daily-postit-precache-${SW_VERSION}`;
+
+// Only precache the shell entry — index.html is fetched network-first below.
+// Static assets (with content-hashed names) are cached lazily on first request.
+const PRECACHE_URLS = [
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png"
 ];
 
-// Install Event
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log("[Service Worker] Pre-caching static assets");
-      return cache.addAll(ASSETS_TO_CACHE).catch((err) => {
-        console.warn("[Service Worker] Failed to cache some resources during install:", err);
-      });
-    })
+    caches.open(PRECACHE)
+      .then((cache) => cache.addAll(PRECACHE_URLS).catch(() => { /* tolerate missing icons */ }))
+      .then(() => self.skipWaiting())
   );
-  self.skipWaiting();
 });
 
-// Activate Event
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cache) => {
-          if (cache !== CACHE_NAME) {
-            console.log("[Service Worker] Clearing old cache:", cache);
-            return caches.delete(cache);
-          }
-        })
-      );
-    })
+    caches.keys().then((names) =>
+      Promise.all(
+        names
+          .filter((n) => n !== RUNTIME_CACHE && n !== PRECACHE)
+          .map((n) => caches.delete(n))
+      )
+    ).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
-// Fetch Event
-self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
+// Allow the page to trigger immediate activation of a newly-installed SW.
+self.addEventListener("message", (event) => {
+  if (event.data === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+});
 
-  // Skip Chrome extensions and non-HTTP(S) request
-  if (!event.request.url.startsWith(self.location.origin) && !event.request.url.startsWith("https://fonts.")) {
+function isHashedAsset(url) {
+  // Vite emits files like /assets/index-AbCdEf12.js — content-hashed and immutable.
+  return /\/assets\/.+\.[a-z0-9]+\.(js|css|woff2?|png|jpg|svg|ico)$/i.test(url.pathname)
+      || /\/assets\/[^/]+-[A-Za-z0-9_-]{6,}\.(js|css)$/i.test(url.pathname);
+}
+
+self.addEventListener("fetch", (event) => {
+  const req = event.request;
+
+  // Only handle GETs from same origin (skip Firebase auth proxy, APIs, etc.)
+  if (req.method !== "GET") return;
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
+
+  // Never cache the Firebase auth handler/iframe proxied through /__/auth/*
+  if (url.pathname.startsWith("/__/auth/")) return;
+
+  // Network-first for HTML navigations — guarantees users see the latest deploy.
+  const isNavigation = req.mode === "navigate"
+                    || (req.destination === "" && req.headers.get("accept")?.includes("text/html"));
+
+  if (isNavigation) {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(RUNTIME_CACHE).then((c) => c.put(req, copy)).catch(() => {});
+          return res;
+        })
+        .catch(() =>
+          caches.match(req).then((cached) => cached || caches.match("/"))
+        )
+    );
     return;
   }
 
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Fetch in background to update cache (stale-while-revalidate pattern for stability)
-        fetch(event.request)
-          .then((networkResponse) => {
-            if (networkResponse.status === 200) {
-              caches.open(CACHE_NAME).then((cache) => cache.put(event.request, networkResponse));
-            }
-          })
-          .catch(() => { /* Ignore background update failures when offline */ });
-
-        return cachedResponse;
-      }
-
-      return fetch(event.request)
-        .then((networkResponse) => {
-          if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== "basic") {
-            // For external assets like Google Fonts, save them in cache too if status is 200
-            if (networkResponse && networkResponse.status === 200 && event.request.url.includes("fonts.gstatic.com")) {
-              const responseClone = networkResponse.clone();
-              caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
-            }
-            return networkResponse;
+  // Cache-first for hashed static assets — they're immutable, safe to keep forever.
+  if (isHashedAsset(url)) {
+    event.respondWith(
+      caches.match(req).then((cached) => {
+        if (cached) return cached;
+        return fetch(req).then((res) => {
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(RUNTIME_CACHE).then((c) => c.put(req, copy)).catch(() => {});
           }
-
-          const responseToCache = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
-          });
-
-          return networkResponse;
-        })
-        .catch(() => {
-          // If offline and request is an HTML page, return root
-          if (event.request.mode === "navigate") {
-            return caches.match("/");
-          }
+          return res;
         });
+      })
+    );
+    return;
+  }
+
+  // Stale-while-revalidate for everything else (manifest, icons, root-level files).
+  event.respondWith(
+    caches.match(req).then((cached) => {
+      const networkFetch = fetch(req).then((res) => {
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(RUNTIME_CACHE).then((c) => c.put(req, copy)).catch(() => {});
+        }
+        return res;
+      }).catch(() => cached);
+      return cached || networkFetch;
     })
   );
 });
