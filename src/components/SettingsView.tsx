@@ -443,7 +443,7 @@ export default function SettingsView({
               Paper Texture
             </label>
             <span className="text-[11px] text-slate-500 dark:text-slate-400">
-              Realistic shader-rendered paper grain on post-its
+              Shader-rendered grain. Each palette has its own paper feel.
             </span>
           </div>
           <button

@@ -27,7 +27,8 @@ export interface Day {
   discarded: boolean;    // true if crumpled before end of day
   discardedAt: number | null;
   style: {
-    postItColor: string; // hex snapshot
+    postItColor: string;     // hex snapshot
+    paperTexture?: boolean;  // snapshot of "paper texture" setting at creation time
   };
   tasks: Task[];
 }
