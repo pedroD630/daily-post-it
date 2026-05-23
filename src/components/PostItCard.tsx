@@ -7,6 +7,8 @@ import React from "react";
 import { Day, Task } from "../types";
 import TaskItem from "./TaskItem";
 import { Reorder } from "motion/react";
+import { PostItPaperTexture } from "./PostItPaperTexture";
+import type { PaperTextureConfig } from "../constants/palettes";
 
 interface PostItCardProps {
   day: Day;
@@ -20,6 +22,17 @@ interface PostItCardProps {
   activeDeleteId: string | null;
   setActiveDeleteId: (id: string | null) => void;
   calendarEvents?: any[];
+  /**
+   * Default texture setting (typically settings.paperTexture). Used as a
+   * fallback when this specific day was created without a snapshot.
+   * day.style.paperTexture (if defined) wins over this.
+   */
+  paperTexture?: boolean;
+  /**
+   * Texture configuration from the currently active palette. The component
+   * resolves whether to actually render via paperTexture flag + day snapshot.
+   */
+  textureConfig?: PaperTextureConfig;
 }
 
 export default function PostItCard({
@@ -33,8 +46,15 @@ export default function PostItCard({
   readOnly = false,
   activeDeleteId,
   setActiveDeleteId,
-  calendarEvents = []
+  calendarEvents = [],
+  paperTexture: paperTextureFallback = true,
+  textureConfig
 }: PostItCardProps) {
+  // Effective texture flag: per-day snapshot wins; otherwise fall back to the
+  // global setting passed via props. This keeps each historical post-it
+  // visually stable even if the user later flips the global toggle.
+  const effectivePaperTexture =
+    day.style.paperTexture !== undefined ? day.style.paperTexture : paperTextureFallback;
   // Separate and sort tasks by explicit order field, fallback to creation time
   const incompleteTasks = day.tasks
     .filter((t) => !t.completed)
@@ -92,7 +112,7 @@ export default function PostItCard({
   return (
     <div
       id={`postit-card-${day.id}`}
-      className="postit-paper-texture postit-curved-light relative w-full max-w-md p-6 md:p-8 flex flex-col justify-between select-none transition-all duration-300"
+      className={`${effectivePaperTexture ? "" : "postit-paper-texture"} postit-curved-light relative w-full max-w-md p-6 md:p-8 flex flex-col justify-between select-none transition-all duration-300`}
       style={{
         borderRadius: "16px 20px 4px 28px",
         backgroundColor: postItBgColor,
@@ -111,6 +131,12 @@ export default function PostItCard({
         `,
       }}
     >
+      {/* WebGL paper-texture overlay — palette-aware. Text below stays readable
+          because mix-blend-mode: multiply leaves white-ish areas unchanged and
+          only darkens where the noise particles (colorFront) are. */}
+      {effectivePaperTexture && textureConfig && (
+        <PostItPaperTexture config={textureConfig} />
+      )}
       {/* Top Bar */}
       <div className="flex items-center justify-between pointer-events-none select-none mb-4" id="postit-card-topbar">
         <span

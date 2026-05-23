@@ -11,7 +11,9 @@ const DB_VERSION = 1;
 export const DEFAULT_SETTINGS: Settings = {
   postItColor: "#fef3c7", // Yellow Preset
   penColor: "#1f2937",    // Black Preset
-  fontFamily: "sans-serif"
+  fontFamily: "sans-serif",
+  paletteId: "pastel",
+  paperTexture: true
 };
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -54,7 +56,10 @@ export async function getSettings(): Promise<Settings> {
 
     request.onsuccess = () => {
       if (request.result) {
-        resolve(request.result);
+        // Backfill any fields added in later versions (e.g. paletteId, paperTexture)
+        // so existing users don't end up with undefined values.
+        const merged: Settings = { ...DEFAULT_SETTINGS, ...request.result };
+        resolve(merged);
       } else {
         // Initialize default settings
         saveSettings(DEFAULT_SETTINGS)

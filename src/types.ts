@@ -27,7 +27,8 @@ export interface Day {
   discarded: boolean;    // true if crumpled before end of day
   discardedAt: number | null;
   style: {
-    postItColor: string; // hex snapshot
+    postItColor: string;     // hex snapshot
+    paperTexture?: boolean;  // snapshot of "paper texture" setting at creation time
   };
   tasks: Task[];
 }
@@ -36,6 +37,8 @@ export interface Settings {
   postItColor: string;   // hex (preset or custom)
   penColor: string;      // hex (black, blue, red)
   fontFamily: string;    // default, elegant, handwritten
+  paletteId: string;     // ID of the active color palette (see constants/palettes.ts)
+  paperTexture: boolean; // whether to render the realistic shader-based paper texture
 }
 
 export type AppView = "main" | "history" | "settings" | "profile";

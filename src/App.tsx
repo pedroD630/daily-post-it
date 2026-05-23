@@ -12,6 +12,7 @@ import PostItCard from "./components/PostItCard";
 import HistoryView from "./components/HistoryView";
 import SettingsView from "./components/SettingsView";
 import ProfileView from "./components/ProfileView";
+import { getPaletteById } from "./constants/palettes";
 import { Trash2, Plus, AlertCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { User } from "firebase/auth";
@@ -106,6 +107,7 @@ export default function App() {
           discardedAt: null,
           style: {
             postItColor: loadedSettings.postItColor,
+            paperTexture: loadedSettings.paperTexture,
           },
           tasks: [],
         };
@@ -541,6 +543,7 @@ export default function App() {
           discardedAt: null,
           style: {
             postItColor: settings.postItColor,
+            paperTexture: settings.paperTexture,
           },
           tasks: [],
         };
@@ -569,12 +572,15 @@ export default function App() {
       setSettings(newSettings);
       setLivePostItColor(newSettings.postItColor);
 
-      // Sync color live on the active post-it background if color was edited
+      // Sync color & texture live on the active post-it if changed via settings.
+      // Today is still being edited, so it follows the latest preference.
+      // Historical days are untouched (their snapshot stays stable).
       if (todayDay) {
         const updatedDay = {
           ...todayDay,
           style: {
             postItColor: newSettings.postItColor,
+            paperTexture: newSettings.paperTexture,
           },
         };
         setTodayDay(updatedDay);
@@ -734,6 +740,8 @@ export default function App() {
                     activeDeleteId={activeDeleteId}
                     setActiveDeleteId={setActiveDeleteId}
                     calendarEvents={calendarEvents}
+                    paperTexture={settings.paperTexture}
+                    textureConfig={getPaletteById(settings.paletteId).texture}
                   />
                 </motion.div>
 
@@ -766,7 +774,11 @@ export default function App() {
             )}
 
             {currentView === "history" && (
-              <HistoryView historyDays={historyDays} />
+              <HistoryView
+                historyDays={historyDays}
+                paperTexture={settings.paperTexture}
+                textureConfig={getPaletteById(settings.paletteId).texture}
+              />
             )}
 
             {currentView === "settings" && (

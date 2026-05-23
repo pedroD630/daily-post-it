@@ -8,12 +8,15 @@ import { Day } from "../types";
 import PostItCard from "./PostItCard";
 import { AnimatePresence, motion } from "motion/react";
 import { ChevronLeft, ChevronRight, Info } from "lucide-react";
+import type { PaperTextureConfig } from "../constants/palettes";
 
 interface HistoryViewProps {
   historyDays: Day[];
+  paperTexture?: boolean;
+  textureConfig?: PaperTextureConfig;
 }
 
-export default function HistoryView({ historyDays }: HistoryViewProps) {
+export default function HistoryView({ historyDays, paperTexture = true, textureConfig }: HistoryViewProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [swipeDirection, setSwipeDirection] = useState<"left" | "right">("left");
   const [showHint, setShowHint] = useState(true);
@@ -139,6 +142,8 @@ export default function HistoryView({ historyDays }: HistoryViewProps) {
               readOnly={true}
               activeDeleteId={null}
               setActiveDeleteId={() => {}}
+              paperTexture={paperTexture}
+              textureConfig={textureConfig}
             />
           </motion.div>
         </AnimatePresence>
