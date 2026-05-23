@@ -11,9 +11,10 @@ import { ChevronLeft, ChevronRight, Info } from "lucide-react";
 
 interface HistoryViewProps {
   historyDays: Day[];
+  paperTexture?: boolean;
 }
 
-export default function HistoryView({ historyDays }: HistoryViewProps) {
+export default function HistoryView({ historyDays, paperTexture = true }: HistoryViewProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [swipeDirection, setSwipeDirection] = useState<"left" | "right">("left");
   const [showHint, setShowHint] = useState(true);
@@ -139,6 +140,7 @@ export default function HistoryView({ historyDays }: HistoryViewProps) {
               readOnly={true}
               activeDeleteId={null}
               setActiveDeleteId={() => {}}
+              paperTexture={paperTexture}
             />
           </motion.div>
         </AnimatePresence>

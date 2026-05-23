@@ -5,7 +5,8 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { Settings as SettingsType, AppView } from "../types";
-import { POST_IT_PRESETS, PEN_PRESETS } from "../constants/colors";
+import { PEN_PRESETS } from "../constants/colors";
+import { PALETTES, getPaletteById } from "../constants/palettes";
 import { Save, AlertCircle, Settings as SettingsIcon } from "lucide-react";
 
 interface SettingsViewProps {
@@ -80,7 +81,13 @@ export default function SettingsView({
   const [selectedPostItColor, setSelectedPostItColor] = useState(initialSettings.postItColor);
   const [selectedPenColor, setSelectedPenColor] = useState(initialSettings.penColor);
   const [selectedFont, setSelectedFont] = useState(initialSettings.fontFamily);
-  
+  const [selectedPaletteId, setSelectedPaletteId] = useState(initialSettings.paletteId || "pastel");
+  const [paperTextureEnabled, setPaperTextureEnabled] = useState(
+    initialSettings.paperTexture === undefined ? true : initialSettings.paperTexture
+  );
+
+  const activePalette = getPaletteById(selectedPaletteId);
+
   const [hexInput, setHexInput] = useState(initialSettings.postItColor);
   const [isHexError, setIsHexError] = useState(false);
 
@@ -215,6 +222,8 @@ export default function SettingsView({
       postItColor: selectedPostItColor,
       penColor: selectedPenColor,
       fontFamily: selectedFont,
+      paletteId: selectedPaletteId,
+      paperTexture: paperTextureEnabled,
     });
   };
 
@@ -240,16 +249,55 @@ export default function SettingsView({
           </h2>
         </div>
 
-        {/* Section 1: Preset Colors Selection */}
+        {/* Section 0: Palette Theme Selector */}
+        <div className="flex flex-col gap-2" id="settings-section-palette">
+          <label className="font-sans text-xs font-bold uppercase tracking-wider text-slate-500">
+            Color Palette Theme
+          </label>
+          <div className="flex flex-wrap gap-2 py-1" id="settings-palette-row">
+            {PALETTES.map((palette) => {
+              const isSelected = selectedPaletteId === palette.id;
+              return (
+                <button
+                  id={`palette-${palette.id}`}
+                  key={palette.id}
+                  type="button"
+                  aria-label={`Select ${palette.name} palette`}
+                  onClick={() => setSelectedPaletteId(palette.id)}
+                  className={`flex flex-col items-start gap-1 px-2.5 py-2 rounded-xl border transition-all cursor-pointer ${
+                    isSelected
+                      ? "border-slate-800 bg-slate-50 dark:bg-slate-800 shadow-sm"
+                      : "border-slate-200 dark:border-slate-700 hover:border-slate-400"
+                  }`}
+                >
+                  <div className="flex items-center gap-0.5">
+                    {palette.colors.map((c) => (
+                      <span
+                        key={c.hex}
+                        className="w-3.5 h-3.5 rounded-full border border-black/5"
+                        style={{ backgroundColor: c.hex }}
+                      />
+                    ))}
+                  </div>
+                  <span className="text-[10px] font-mono text-slate-600 dark:text-slate-300 uppercase tracking-wide">
+                    {palette.name}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Section 1: Preset Colors Selection (from active palette) */}
         <div className="flex flex-col gap-2" id="settings-section-postitcolor">
           <label className="font-sans text-xs font-bold uppercase tracking-wider text-slate-500">
             Post-it Color
           </label>
           <div className="flex items-center gap-3 py-1" id="settings-preset-colors-row">
-            {POST_IT_PRESETS.map((preset) => (
+            {activePalette.colors.map((preset) => (
               <button
                 id={`preset-color-${preset.name}`}
-                key={preset.name}
+                key={preset.hex}
                 type="button"
                 aria-label={`Select ${preset.name} Background`}
                 onClick={() => handlePresetSelect(preset.hex)}
@@ -386,6 +434,34 @@ export default function SettingsView({
               Handwritten (Gloria Hallelujah)
             </option>
           </select>
+        </div>
+
+        {/* Section 4: Paper Texture Toggle */}
+        <div className="flex items-center justify-between gap-3" id="settings-section-papertexture">
+          <div className="flex flex-col">
+            <label htmlFor="settings-toggle-papertexture" className="font-sans text-xs font-bold uppercase tracking-wider text-slate-500">
+              Paper Texture
+            </label>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">
+              Realistic shader-rendered paper grain on post-its
+            </span>
+          </div>
+          <button
+            id="settings-toggle-papertexture"
+            type="button"
+            role="switch"
+            aria-checked={paperTextureEnabled}
+            onClick={() => setPaperTextureEnabled((v) => !v)}
+            className={`relative w-11 h-6 rounded-full transition-colors duration-200 shrink-0 cursor-pointer ${
+              paperTextureEnabled ? "bg-slate-800 dark:bg-slate-100" : "bg-slate-300 dark:bg-slate-700"
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 w-5 h-5 rounded-full bg-white dark:bg-slate-200 shadow transition-transform duration-200 ${
+                paperTextureEnabled ? "translate-x-5" : "translate-x-0.5"
+              }`}
+            />
+          </button>
         </div>
 
         {/* Action Form Footer (Save & cancel buttons) */}

@@ -36,6 +36,8 @@ export interface Settings {
   postItColor: string;   // hex (preset or custom)
   penColor: string;      // hex (black, blue, red)
   fontFamily: string;    // default, elegant, handwritten
+  paletteId: string;     // ID of the active color palette (see constants/palettes.ts)
+  paperTexture: boolean; // whether to render the realistic shader-based paper texture
 }
 
 export type AppView = "main" | "history" | "settings" | "profile";

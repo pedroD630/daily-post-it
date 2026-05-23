@@ -734,6 +734,7 @@ export default function App() {
                     activeDeleteId={activeDeleteId}
                     setActiveDeleteId={setActiveDeleteId}
                     calendarEvents={calendarEvents}
+                    paperTexture={settings.paperTexture}
                   />
                 </motion.div>
 
@@ -766,7 +767,7 @@ export default function App() {
             )}
 
             {currentView === "history" && (
-              <HistoryView historyDays={historyDays} />
+              <HistoryView historyDays={historyDays} paperTexture={settings.paperTexture} />
             )}
 
             {currentView === "settings" && (
