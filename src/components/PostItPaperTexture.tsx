@@ -4,16 +4,20 @@
  *
  * Memoized wrapper around @paper-design/shaders-react PaperTexture.
  *
- * Why a dedicated component:
- *  - Holds the perf-tuning logic (mobile pixel-ratio cap, reduced-motion bypass)
- *    so PostItCard stays focused on layout.
- *  - React.memo with reference equality on the `config` object: since palette
- *    configs come from a frozen constants module (PALETTES), the reference is
- *    stable across parent re-renders. This prevents the WebGL canvas from
- *    re-initializing whenever the parent re-renders due to unrelated state.
- *  - Returns null under prefers-reduced-motion: respects user OS-level setting
- *    AND saves the cost of a WebGL context altogether for users who don't
- *    want or can't tolerate animated/heavy graphics.
+ * Implementation notes:
+ *  - PaperTexture renders a <div> that holds the WebGL canvas. The shaders
+ *    library reads that div's size via ResizeObserver to size the canvas.
+ *    Per the package README, dimensions must be passed via the `style` prop
+ *    (e.g. `style={{ width: 200, height: 200 }}`) — NOT as `width="100%"`
+ *    props at the top level, which the library treats as inline CSS but
+ *    in some flex/absolute contexts collapses to 0×0.
+ *  - We absolutely-position PaperTexture's own div to inset:0 inside the
+ *    post-it card, applying mix-blend-mode and opacity directly on it.
+ *    No extra wrapper, no missed layout pass.
+ *  - React.memo: palette configs come from a constant module, so the
+ *    `config` reference is stable. We avoid re-creating the WebGL canvas
+ *    on every parent re-render.
+ *  - Respect prefers-reduced-motion and tame mobile pixel-ratio for perf.
  */
 
 import { memo, useMemo } from "react";
@@ -28,61 +32,55 @@ function detectEnv() {
   if (typeof window === "undefined") {
     return { isMobile: false, reducedMotion: false };
   }
-  // pointer:coarse is the W3C-blessed way to detect touch-first devices.
   const isMobile = window.matchMedia("(pointer: coarse)").matches;
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   return { isMobile, reducedMotion };
 }
 
 function PostItPaperTextureInner({ config }: Props) {
-  // detectEnv() reads matchMedia which won't change without a page reload,
-  // so a single useMemo at mount is enough — no subscriptions needed.
   const env = useMemo(detectEnv, []);
 
   if (env.reducedMotion) return null;
 
-  // Mobile devices: cap effective resolution to roughly half. This is the
-  // biggest single perf lever — WebGL fragment work is proportional to pixel
-  // count, and a post-it card is small enough that 1x DPR looks fine.
   const minPixelRatio = env.isMobile ? 1 : 2;
   const maxPixelCount = env.isMobile ? 600 * 600 : 1280 * 1280;
 
   return (
-    <div
+    <PaperTexture
       aria-hidden="true"
-      className="absolute inset-0 pointer-events-none overflow-hidden"
+      minPixelRatio={minPixelRatio}
+      maxPixelCount={maxPixelCount}
+      colorBack={config.colorBack}
+      colorFront={config.colorFront}
+      contrast={config.contrast}
+      roughness={config.roughness}
+      fiber={config.fiber}
+      fiberSize={config.fiberSize}
+      crumples={config.crumples}
+      crumpleSize={config.crumpleSize}
+      folds={config.folds}
+      foldCount={config.foldCount}
+      drops={config.drops}
+      fade={config.fade}
+      seed={config.seed}
+      scale={config.scale}
+      fit="cover"
       style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: "100%",
+        height: "100%",
         borderRadius: "inherit",
         mixBlendMode: "multiply",
         opacity: config.overlayOpacity,
+        pointerEvents: "none",
+        overflow: "hidden",
       }}
-    >
-      <PaperTexture
-        width="100%"
-        height="100%"
-        minPixelRatio={minPixelRatio}
-        maxPixelCount={maxPixelCount}
-        colorBack={config.colorBack}
-        colorFront={config.colorFront}
-        contrast={config.contrast}
-        roughness={config.roughness}
-        fiber={config.fiber}
-        fiberSize={config.fiberSize}
-        crumples={config.crumples}
-        crumpleSize={config.crumpleSize}
-        folds={config.folds}
-        foldCount={config.foldCount}
-        drops={config.drops}
-        fade={config.fade}
-        seed={config.seed}
-        scale={config.scale}
-        fit="cover"
-      />
-    </div>
+    />
   );
 }
 
-// Reference-equality on config is enough: palette configs come from a frozen
-// constants module, so the reference is stable when the user doesn't change
-// palette. When they do, we want a re-render anyway.
 export const PostItPaperTexture = memo(PostItPaperTextureInner);
