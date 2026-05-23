@@ -288,9 +288,9 @@ export default function TaskItem({
                 setShowTimePicker(!showTimePicker);
               }}
               className={`p-1 rounded-full transition-all focus:outline-none ${
-                localTime 
-                  ? "bg-amber-100 border border-amber-300 text-amber-800 scale-105 opacity-100 shadow-sm" 
-                  : "text-slate-400 opacity-20 hover:opacity-100 hover:scale-105"
+                localTime
+                  ? "bg-amber-100 border border-amber-300 text-amber-800 scale-105 opacity-100 shadow-sm"
+                  : "text-slate-700 opacity-60 hover:opacity-100 hover:scale-105"
               }`}
               title={localTime ? `Alert set for ${localTime}` : "Set alert time"}
             >
