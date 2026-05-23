@@ -112,7 +112,7 @@ export default function PostItCard({
   return (
     <div
       id={`postit-card-${day.id}`}
-      className={`${effectivePaperTexture ? "" : "postit-paper-texture"} postit-curved-light relative w-full max-w-md p-6 md:p-8 flex flex-col justify-between select-none transition-all duration-300`}
+      className={`postit-paper-texture postit-curved-light relative w-full max-w-md p-6 md:p-8 flex flex-col justify-between select-none transition-all duration-300`}
       style={{
         borderRadius: "16px 20px 4px 28px",
         backgroundColor: postItBgColor,
