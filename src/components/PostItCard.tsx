@@ -137,8 +137,8 @@ export default function PostItCard({
       {effectivePaperTexture && textureConfig && (
         <PostItPaperTexture config={textureConfig} />
       )}
-      {/* Top Bar */}
-      <div className="flex items-center justify-between pointer-events-none select-none mb-4" id="postit-card-topbar">
+      {/* Top Bar — explicit z-index lifts it above the absolutely-positioned shader overlay */}
+      <div className="relative z-10 flex items-center justify-between pointer-events-none select-none mb-4" id="postit-card-topbar">
         <span
           id="postit-date-display"
           className="font-mono text-xs opacity-50 tracking-wider font-semibold"
@@ -158,10 +158,10 @@ export default function PostItCard({
         )}
       </div>
 
-      {/* Primary Task Area */}
+      {/* Primary Task Area — relative + z-10 so tasks render above the shader overlay */}
       <div
         id="postit-tasks-scrollcontainer"
-        className="flex-1 overflow-visible pr-1 flex flex-col gap-1 select-text"
+        className="relative z-10 flex-1 overflow-visible pr-1 flex flex-col gap-1 select-text"
       >
         {day.tasks.length === 0 ? (
           <div
