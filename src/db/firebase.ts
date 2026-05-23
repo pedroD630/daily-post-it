@@ -2,6 +2,10 @@ import { initializeApp } from "firebase/app";
 import {
   getAuth,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  setPersistence,
+  browserLocalPersistence,
   GoogleAuthProvider,
   onAuthStateChanged,
   User,
@@ -26,6 +30,12 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app); // Keep it exported for safety but we synchronize directly to Supabase now
+
+// Persist session across browser restarts, suspend/resume, etc.
+// browserLocalPersistence stores in IndexedDB, surviving long-term suspend.
+setPersistence(auth, browserLocalPersistence).catch((err) => {
+  console.warn("Auth persistence setup failed (will fall back to in-memory):", err);
+});
 
 const provider = new GoogleAuthProvider();
 // Google Cal & Tasks scopes
@@ -75,6 +85,25 @@ onAuthStateChanged(auth, async (user) => {
   }
 });
 
+// When the page loads after a signInWithRedirect, pick up the credential here.
+// Runs once at module init; safely no-ops when there was no pending redirect.
+if (typeof window !== "undefined") {
+  getRedirectResult(auth)
+    .then((result) => {
+      if (!result) return;
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        cachedAccessToken = credential.accessToken;
+        localStorage.setItem("google_access_token", credential.accessToken);
+        setCalendarExpired(false);
+        authListeners.forEach((lis) => lis(result.user, cachedAccessToken));
+      }
+    })
+    .catch((err) => {
+      console.error("getRedirectResult error:", err);
+    });
+}
+
 
 export const initAuth = (
   onAuthChange: (user: User | null, token: string | null) => void
@@ -86,6 +115,17 @@ export const initAuth = (
     authListeners.delete(onAuthChange);
   };
 };
+
+// Errors where the popup couldn't open or was dismissed before completing —
+// in any of these cases we silently fall back to a full-page redirect, which is
+// 100% reliable (no user-gesture timing constraints, works after long suspend).
+const POPUP_FALLBACK_CODES = new Set([
+  "auth/popup-blocked",
+  "auth/popup-closed-by-user",
+  "auth/cancelled-popup-request",
+  "auth/operation-not-supported-in-this-environment",
+  "auth/web-storage-unsupported"
+]);
 
 export const googleSignIn = (): Promise<void> => {
   isSigningIn = true;
@@ -100,6 +140,13 @@ export const googleSignIn = (): Promise<void> => {
       }
     })
     .catch((err) => {
+      if (err && POPUP_FALLBACK_CODES.has(err.code)) {
+        console.warn(`Popup auth failed (${err.code}); falling back to redirect.`);
+        // signInWithRedirect returns a Promise that resolves to void and then
+        // the browser navigates away. The result is picked up by getRedirectResult
+        // on the next page load.
+        return signInWithRedirect(auth, provider);
+      }
       console.error("Firebase Google Sign-In error:", err);
       throw err;
     })
