@@ -2,6 +2,10 @@ import { initializeApp } from "firebase/app";
 import {
   getAuth,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  setPersistence,
+  browserLocalPersistence,
   GoogleAuthProvider,
   onAuthStateChanged,
   User,
@@ -26,6 +30,12 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app); // Keep it exported for safety but we synchronize directly to Supabase now
+
+// Persist session across browser restarts, suspend/resume, etc.
+// browserLocalPersistence stores in IndexedDB, surviving long-term suspend.
+setPersistence(auth, browserLocalPersistence).catch((err) => {
+  console.warn("Auth persistence setup failed (will fall back to in-memory):", err);
+});
 
 const provider = new GoogleAuthProvider();
 // Google Cal & Tasks scopes
@@ -75,6 +85,85 @@ onAuthStateChanged(auth, async (user) => {
   }
 });
 
+// Session-scoped guard so a failed silent re-auth doesn't put us in a redirect loop.
+const AUTO_RECONNECT_FLAG = "google_auto_reconnect_attempted";
+
+function clearAutoReconnectGuard() {
+  try { sessionStorage.removeItem(AUTO_RECONNECT_FLAG); } catch { /* sessionStorage may be unavailable */ }
+}
+
+// When the page loads after a signInWithRedirect, pick up the credential here.
+// Runs once at module init; safely no-ops when there was no pending redirect.
+if (typeof window !== "undefined") {
+  getRedirectResult(auth)
+    .then((result) => {
+      if (!result) return;
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        cachedAccessToken = credential.accessToken;
+        localStorage.setItem("google_access_token", credential.accessToken);
+        setCalendarExpired(false);
+        clearAutoReconnectGuard(); // success → allow future auto-reconnects
+        authListeners.forEach((lis) => lis(result.user, cachedAccessToken));
+      }
+    })
+    .catch((err) => {
+      console.error("getRedirectResult error:", err);
+    });
+}
+
+/**
+ * Silent re-auth attempt for when the Google access token has expired but the
+ * Firebase session and the user's Google session are both still valid.
+ *
+ * Uses prompt='none' + login_hint to ask Google to skip the consent UI. If the
+ * user is still signed in to Google and has previously granted these scopes,
+ * Google returns immediately with a fresh access token via redirect — no UI
+ * is shown, the page just briefly navigates and comes back.
+ *
+ * Falls through silently if:
+ *  - Firebase session is gone (need full interactive login anyway)
+ *  - A previous silent attempt already failed this session (avoid loop)
+ *  - We're currently in another sign-in flow
+ *
+ * Caller is responsible for showing the manual reconnect UI as a fallback;
+ * setCalendarExpired(true) should already have been called by the API layer.
+ */
+export async function tryAutoReconnect(): Promise<void> {
+  if (typeof window === "undefined") return;
+  if (isSigningIn) return;
+  if (!auth.currentUser) return;
+
+  try {
+    if (sessionStorage.getItem(AUTO_RECONNECT_FLAG) === "true") return;
+    sessionStorage.setItem(AUTO_RECONNECT_FLAG, "true");
+  } catch {
+    // If sessionStorage is unavailable, skip auto-reconnect to be safe.
+    return;
+  }
+
+  try {
+    const silentProvider = new GoogleAuthProvider();
+    silentProvider.addScope("https://www.googleapis.com/auth/calendar.events");
+    silentProvider.addScope("https://www.googleapis.com/auth/calendar.readonly");
+    silentProvider.addScope("https://www.googleapis.com/auth/tasks");
+    silentProvider.setCustomParameters({
+      prompt: "none",
+      login_hint: auth.currentUser.email || ""
+    });
+
+    isSigningIn = true;
+    // Browser will navigate away. The result is captured by getRedirectResult
+    // on the next page load. If the user has no active Google session, Google
+    // redirects back with an error in the URL hash; getRedirectResult will
+    // reject and we leave the UI in calendar-expired state for manual action.
+    await signInWithRedirect(auth, silentProvider);
+  } catch (err) {
+    console.warn("Auto-reconnect to Google failed; user will need to click reconnect:", err);
+    isSigningIn = false;
+  }
+}
+
 
 export const initAuth = (
   onAuthChange: (user: User | null, token: string | null) => void
@@ -87,8 +176,21 @@ export const initAuth = (
   };
 };
 
+// Errors where the popup couldn't open or was dismissed before completing —
+// in any of these cases we silently fall back to a full-page redirect, which is
+// 100% reliable (no user-gesture timing constraints, works after long suspend).
+const POPUP_FALLBACK_CODES = new Set([
+  "auth/popup-blocked",
+  "auth/popup-closed-by-user",
+  "auth/cancelled-popup-request",
+  "auth/operation-not-supported-in-this-environment",
+  "auth/web-storage-unsupported"
+]);
+
 export const googleSignIn = (): Promise<void> => {
   isSigningIn = true;
+  // Allow a future auto-reconnect to run again now that the user is taking action.
+  clearAutoReconnectGuard();
   return signInWithPopup(auth, provider)
     .then((result) => {
       const credential = GoogleAuthProvider.credentialFromResult(result);
@@ -100,6 +202,13 @@ export const googleSignIn = (): Promise<void> => {
       }
     })
     .catch((err) => {
+      if (err && POPUP_FALLBACK_CODES.has(err.code)) {
+        console.warn(`Popup auth failed (${err.code}); falling back to redirect.`);
+        // signInWithRedirect returns a Promise that resolves to void and then
+        // the browser navigates away. The result is picked up by getRedirectResult
+        // on the next page load.
+        return signInWithRedirect(auth, provider);
+      }
       console.error("Firebase Google Sign-In error:", err);
       throw err;
     })
@@ -282,8 +391,9 @@ export async function fetchGoogleCalendarEvents(): Promise<CalendarEvent[]> {
 
     if (!res.ok) {
       if (res.status === 401) {
-        console.warn("Google Calendar request returned 401, token might be expired.");
+        console.warn("Google Calendar request returned 401, token might be expired. Attempting silent reconnect.");
         setCalendarExpired(true);
+        void tryAutoReconnect();
       }
       return [];
     }

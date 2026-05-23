@@ -1,4 +1,4 @@
-import { getAccessToken, setCalendarExpired } from "./firebase";
+import { getAccessToken, setCalendarExpired, tryAutoReconnect } from "./firebase";
 
 async function googleApiFetch(url: string, options: RequestInit = {}): Promise<Response | null> {
   const token = await getAccessToken();
@@ -14,8 +14,13 @@ async function googleApiFetch(url: string, options: RequestInit = {}): Promise<R
   try {
     const res = await fetch(url, { ...options, headers });
     if (res.status === 401) {
-      console.warn("Google API returned 401. Setting calendar session as expired.");
+      console.warn("Google API returned 401. Setting calendar session as expired and attempting silent reconnect.");
       setCalendarExpired(true);
+      // Fire-and-forget: if the user still has an active Google session, this
+      // triggers a same-origin redirect that returns in ~1-2s with a fresh
+      // access token (no consent UI). If it fails, the calendarExpired UI
+      // remains for the user to act on manually.
+      void tryAutoReconnect();
       return null;
     }
     return res;
