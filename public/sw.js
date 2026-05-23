@@ -5,7 +5,7 @@
 
 // Bump this version on any change that should bust the SW cache.
 // The build hash in /assets/* file names already busts code/CSS caches automatically.
-const SW_VERSION = "v3";
+const SW_VERSION = "v4";
 const RUNTIME_CACHE = `daily-postit-runtime-${SW_VERSION}`;
 const PRECACHE = `daily-postit-precache-${SW_VERSION}`;
 
@@ -13,8 +13,9 @@ const PRECACHE = `daily-postit-precache-${SW_VERSION}`;
 // Static assets (with content-hashed names) are cached lazily on first request.
 const PRECACHE_URLS = [
   "/manifest.json",
-  "/icons/icon-192.png",
-  "/icons/icon-512.png"
+  "/icons/android/launchericon-192x192.png",
+  "/icons/android/launchericon-512x512.png",
+  "/icons/ios/180.png"
 ];
 
 self.addEventListener("install", (event) => {
