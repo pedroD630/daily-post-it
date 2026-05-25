@@ -8,12 +8,12 @@
  * can type custom hex codes that come back in various casings.
  */
 export const POINT_VALUES: Record<string, number> = {
-  "#1f2937": 5,   // black (default)
-  "#2563eb": 7,   // blue
-  "#dc2626": 10,  // red
+  "#1f2937": 7,   // black (default)
+  "#2563eb": 12,   // blue
+  "#dc2626": 20,  // red
 };
 
-const DEFAULT_POINT_VALUE = 5;
+const DEFAULT_POINT_VALUE = 7;
 
 export function pointValue(penColor: string | undefined | null): number {
   if (!penColor) return DEFAULT_POINT_VALUE;
