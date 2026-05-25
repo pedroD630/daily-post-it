@@ -4,7 +4,7 @@
  */
 
 import React from "react";
-import { History, Plus, Settings } from "lucide-react";
+import { History, Plus, Settings, ShoppingBag } from "lucide-react";
 import { AppView } from "../types";
 
 interface NavbarProps {
@@ -43,6 +43,20 @@ export default function Navbar({ currentView, onViewChange, currentUserPhoto }: 
           }`}
         >
           <Plus className="w-6 h-6 stroke-[2.5]" />
+        </button>
+
+        {/* Shop Button */}
+        <button
+          id="nav-btn-shop"
+          aria-label="View reward shop"
+          onClick={() => onViewChange("shop")}
+          className={`flex items-center justify-center w-12 h-12 rounded-xl transition-all duration-200 ${
+            currentView === "shop"
+              ? "bg-white text-stone-900 shadow-md ring-1 ring-black/5 scale-105"
+              : "text-stone-600 hover:bg-black/5 opacity-60 hover:opacity-100"
+          }`}
+        >
+          <ShoppingBag className="w-5 h-5" />
         </button>
 
         {/* Right: Settings Button */}

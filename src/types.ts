@@ -41,4 +41,4 @@ export interface Settings {
   paperTexture: boolean; // whether to render the realistic shader-based paper texture
 }
 
-export type AppView = "main" | "history" | "settings" | "profile";
+export type AppView = "main" | "history" | "settings" | "profile" | "shop";

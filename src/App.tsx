@@ -5,14 +5,19 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { Day, Task, Settings, AppView } from "./types";
-import { getSettings, saveSettings, getDay, saveDay, getAllDays } from "./db";
+import { getSettings, saveSettings, getDay, saveDay, getAllDays, getBalance, applyPointsDelta, setBalance } from "./db";
 import { DEFAULT_SETTINGS } from "./db";
 import Navbar from "./components/Navbar";
 import PostItCard from "./components/PostItCard";
 import HistoryView from "./components/HistoryView";
 import SettingsView from "./components/SettingsView";
 import ProfileView from "./components/ProfileView";
+import ShopView from "./components/ShopView";
 import { getPaletteById } from "./constants/palettes";
+import { pointValue } from "./utils/points";
+import { startPenaltyScheduler, checkMissedPenalty } from "./utils/penaltyScheduler";
+import { syncPointsBalanceToSupabase, pullPointsBalanceFromSupabase } from "./db/supabase";
+import { Reward } from "./constants/rewards";
 import { Trash2, Plus, AlertCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { User } from "firebase/auth";
@@ -89,6 +94,29 @@ export default function App() {
   const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
   const [calendarExpired, setCalendarExpired] = useState(false);
 
+  // Points & Rewards
+  const [pointsBalance, setPointsBalance] = useState<number>(0);
+  // Always-fresh ref of today's tasks for the penalty scheduler (which runs
+  // on a setInterval and would otherwise capture a stale closure).
+  const todayDayRef = useRef<Day | null>(null);
+  useEffect(() => {
+    todayDayRef.current = todayDay;
+  }, [todayDay]);
+
+  /**
+   * Adjust the balance: writes to IDB, updates state, and (if logged in)
+   * mirrors the new value to Supabase. Returns the new balance.
+   */
+  const adjustBalance = async (delta: number): Promise<number> => {
+    const next = await applyPointsDelta(delta);
+    setPointsBalance(next);
+    if (auth.currentUser) {
+      // Fire-and-forget; the IDB write is the source of truth.
+      void syncPointsBalanceToSupabase(auth.currentUser.uid, next);
+    }
+    return next;
+  };
+
   const loadInitialData = async () => {
     try {
       const loadedSettings = await getSettings();
@@ -119,6 +147,23 @@ export default function App() {
       // Fetch past notes for history
       const allDays = await getAllDays();
       setAllDaysList(allDays);
+
+      // Load current points balance from IndexedDB
+      const balance = await getBalance();
+      setPointsBalance(balance);
+
+      // One-shot check for missed midnight penalty (e.g. app was closed
+      // while clock crossed midnight). Reads yesterday's day record and
+      // deducts incomplete tasks if not already settled.
+      await checkMissedPenalty(
+        async (id) => {
+          const d = await getDay(id);
+          return d ? { tasks: d.tasks } : null;
+        },
+        async (delta) => {
+          await adjustBalance(delta);
+        }
+      );
     } catch (err) {
       console.error("Failed to load initial data from IndexedDB:", err);
     }
@@ -156,6 +201,12 @@ export default function App() {
           await pullAllDaysFromCloud();
           // Flush any offline sync queue immediately
           await syncAllUnsyncedDays();
+          // Pull points balance from cloud; cloud value wins on login per spec.
+          const cloudBalance = await pullPointsBalanceFromSupabase(user.uid);
+          if (cloudBalance !== null) {
+            await setBalance(cloudBalance);
+            setPointsBalance(cloudBalance);
+          }
         } catch (e) {
           console.error("Background initial sync setup failed:", e);
         }
@@ -169,9 +220,18 @@ export default function App() {
       setCalendarExpired(expired);
     });
 
+    // Midnight penalty scheduler — checks every minute, applies once per day.
+    const stopPenaltyScheduler = startPenaltyScheduler({
+      getTodayTasks: () => todayDayRef.current?.tasks ?? [],
+      onPenalty: async (delta) => {
+        await adjustBalance(delta);
+      },
+    });
+
     return () => {
       unsub();
       unsubExpired();
+      stopPenaltyScheduler();
     };
   }, []);
 
@@ -247,12 +307,15 @@ export default function App() {
 
     let targetTaskId: string | undefined;
     let targetEventId: string | undefined;
+    let pointsDelta = 0;
 
     const updatedTasks = todayDay.tasks.map((task) => {
       if (task.id === taskId) {
         const nextCompleted = !task.completed;
         targetTaskId = task.calendarTaskId;
         targetEventId = task.calendarEventId;
+        // Earn on completion, reverse on un-completion.
+        pointsDelta = (nextCompleted ? 1 : -1) * pointValue(task.style.penColor);
         return {
           ...task,
           completed: nextCompleted,
@@ -269,6 +332,11 @@ export default function App() {
 
     setTodayDay(updatedDay);
     await saveDayWithSync(updatedDay);
+
+    // Award / reverse points for the toggle.
+    if (pointsDelta !== 0) {
+      await adjustBalance(pointsDelta);
+    }
 
     // Sync state modification to Google right away if connected
     if (currentUser && isCalendarConnected()) {
@@ -742,6 +810,7 @@ export default function App() {
                     calendarEvents={calendarEvents}
                     paperTexture={settings.paperTexture}
                     textureConfig={getPaletteById(settings.paletteId).texture}
+                    pointsBalance={pointsBalance}
                   />
                 </motion.div>
 
@@ -797,6 +866,15 @@ export default function App() {
                 currentUser={currentUser}
                 onRefreshData={handleRefreshData}
                 onViewChange={setCurrentView}
+              />
+            )}
+
+            {currentView === "shop" && (
+              <ShopView
+                balance={pointsBalance}
+                onRedeem={async (reward: Reward) => {
+                  await adjustBalance(-reward.cost);
+                }}
               />
             )}
           </motion.div>

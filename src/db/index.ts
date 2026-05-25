@@ -6,7 +6,9 @@
 import { Day, Settings } from "../types";
 
 const DB_NAME = "postit_db";
-const DB_VERSION = 1;
+// v2: introduced "points_ledger" store
+const DB_VERSION = 2;
+const POINTS_BALANCE_KEY = "balance";
 
 export const DEFAULT_SETTINGS: Settings = {
   postItColor: "#fef3c7", // Yellow Preset
@@ -40,6 +42,10 @@ export function initDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains("settings")) {
         db.createObjectStore("settings");
+      }
+      // v2: single-record ledger keyed by "balance"
+      if (!db.objectStoreNames.contains("points_ledger")) {
+        db.createObjectStore("points_ledger", { keyPath: "id" });
       }
     };
   });
@@ -131,3 +137,75 @@ export async function getAllDays(): Promise<Day[]> {
     };
   });
 }
+
+/* -------------------------------------------------------------------------
+ * Points ledger — single-record store holding the running balance.
+ * Can be negative (penalties at midnight, post-due deductions).
+ * ----------------------------------------------------------------------- */
+
+interface PointsLedgerRow {
+  id: "balance";
+  balance: number;
+  lastUpdated: number;
+}
+
+export async function getBalance(): Promise<number> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("points_ledger", "readonly");
+    const store = tx.objectStore("points_ledger");
+    const req = store.get(POINTS_BALANCE_KEY);
+    req.onsuccess = () => {
+      const row = req.result as PointsLedgerRow | undefined;
+      resolve(row?.balance ?? 0);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/**
+ * Overwrite balance with an explicit value (used after pulling from cloud).
+ * Returns the value written.
+ */
+export async function setBalance(newBalance: number): Promise<number> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("points_ledger", "readwrite");
+    const store = tx.objectStore("points_ledger");
+    const row: PointsLedgerRow = {
+      id: POINTS_BALANCE_KEY,
+      balance: newBalance,
+      lastUpdated: Date.now(),
+    };
+    const req = store.put(row);
+    req.onsuccess = () => resolve(newBalance);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/**
+ * Atomically adjust the balance by `delta` (positive or negative) and return
+ * the new value. Single-transaction so concurrent calls don't race.
+ */
+export async function applyPointsDelta(delta: number): Promise<number> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("points_ledger", "readwrite");
+    const store = tx.objectStore("points_ledger");
+    const getReq = store.get(POINTS_BALANCE_KEY);
+    getReq.onsuccess = () => {
+      const row = getReq.result as PointsLedgerRow | undefined;
+      const current = row?.balance ?? 0;
+      const next: PointsLedgerRow = {
+        id: POINTS_BALANCE_KEY,
+        balance: current + delta,
+        lastUpdated: Date.now(),
+      };
+      const putReq = store.put(next);
+      putReq.onsuccess = () => resolve(next.balance);
+      putReq.onerror = () => reject(putReq.error);
+    };
+    getReq.onerror = () => reject(getReq.error);
+  });
+}
+
