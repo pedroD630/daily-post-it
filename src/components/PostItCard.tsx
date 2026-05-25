@@ -7,8 +7,10 @@ import React from "react";
 import { Day, Task } from "../types";
 import TaskItem from "./TaskItem";
 import { Reorder } from "motion/react";
+import { Zap, AlertTriangle } from "lucide-react";
 import { PostItPaperTexture } from "./PostItPaperTexture";
 import type { PaperTextureConfig } from "../constants/palettes";
+import { formatBalance } from "../utils/points";
 
 interface PostItCardProps {
   day: Day;
@@ -33,6 +35,11 @@ interface PostItCardProps {
    * resolves whether to actually render via paperTexture flag + day snapshot.
    */
   textureConfig?: PaperTextureConfig;
+  /**
+   * Current points balance, displayed bottom-left as a small indicator.
+   * Undefined hides the indicator (e.g. in history view if not relevant).
+   */
+  pointsBalance?: number;
 }
 
 export default function PostItCard({
@@ -48,7 +55,8 @@ export default function PostItCard({
   setActiveDeleteId,
   calendarEvents = [],
   paperTexture: paperTextureFallback = true,
-  textureConfig
+  textureConfig,
+  pointsBalance
 }: PostItCardProps) {
   // Effective texture flag: per-day snapshot wins; otherwise fall back to the
   // global setting passed via props. This keeps each historical post-it
@@ -285,6 +293,25 @@ export default function PostItCard({
           </div>
         )}
       </div>
+
+      {/* Points balance indicator — bottom-left of the post-it.
+          Subtle when positive, bold red when in the negative. */}
+      {pointsBalance !== undefined && (
+        <div
+          id="postit-points-balance"
+          className={`absolute bottom-2 left-3 z-10 flex items-center gap-1 font-mono text-[11px] select-none pointer-events-none ${
+            pointsBalance < 0 ? "text-red-600 opacity-100 font-bold" : "text-slate-800 opacity-50"
+          }`}
+          style={{ mixBlendMode: pointsBalance < 0 ? "normal" : "multiply" }}
+        >
+          {pointsBalance < 0 ? (
+            <AlertTriangle className="w-3 h-3" />
+          ) : (
+            <Zap className="w-3 h-3" />
+          )}
+          <span>{formatBalance(pointsBalance)} pts</span>
+        </div>
+      )}
     </div>
   );
 }

@@ -7,6 +7,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { Check, X, GripVertical, Clock } from "lucide-react";
 import { Task } from "../types";
 import { motion, Reorder, useDragControls } from "motion/react";
+import { pointValue } from "../utils/points";
+import PointsFloat from "./PointsFloat";
 
 interface TaskItemProps {
   key?: React.Key | string;
@@ -54,6 +56,25 @@ export default function TaskItem({
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [localTime, setLocalTime] = useState(task.time);
   const [localReminder, setLocalReminder] = useState(task.reminderMinutes || 10);
+
+  // Floating "+10 / -10" feedback near the checkbox. Cleared by a timer
+  // so the same value can re-trigger via key change.
+  const [floatPoints, setFloatPoints] = useState<number | null>(null);
+  const [floatKey, setFloatKey] = useState(0);
+  const floatTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (floatTimerRef.current) clearTimeout(floatTimerRef.current);
+    };
+  }, []);
+
+  const triggerPointsFloat = (signedPoints: number) => {
+    if (floatTimerRef.current) clearTimeout(floatTimerRef.current);
+    setFloatPoints(signedPoints);
+    setFloatKey((k) => k + 1);
+    floatTimerRef.current = setTimeout(() => setFloatPoints(null), 650);
+  };
 
   const isDeleteMode = activeDeleteId === task.id;
 
@@ -212,28 +233,38 @@ export default function TaskItem({
           </div>
         )}
 
-        {/* Checkbox */}
-        <button
-          id={`task-checkbox-${task.id}`}
-          disabled={readOnly}
-          aria-label={task.completed ? "Mark task as incomplete" : "Mark task as complete"}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleComplete(task.id);
-          }}
-          className="flex items-center justify-center w-5 h-5 mr-3 border-2 rounded-sm bg-white/50 transition-all cursor-pointer focus:outline-none shrink-0"
-          style={{
-            borderColor: task.style.penColor,
-            backgroundColor: task.completed ? task.style.penColor : "rgba(255, 255, 255, 0.5)",
-          }}
-        >
-          {task.completed && (
-            <Check
-              className="w-3.5 h-3.5 text-white stroke-[3.5]"
-              style={{ color: "#ffffff" }}
-            />
-          )}
-        </button>
+        {/* Checkbox (wrapped so PointsFloat can position relative to it) */}
+        <div className="relative mr-3 shrink-0" style={{ width: "1.25rem", height: "1.25rem" }}>
+          <button
+            id={`task-checkbox-${task.id}`}
+            disabled={readOnly}
+            aria-label={task.completed ? "Mark task as incomplete" : "Mark task as complete"}
+            onClick={(e) => {
+              e.stopPropagation();
+              const goingToCompleted = !task.completed;
+              const earned = pointValue(task.style.penColor);
+              triggerPointsFloat(goingToCompleted ? earned : -earned);
+              onToggleComplete(task.id);
+            }}
+            className="flex items-center justify-center w-5 h-5 border-2 rounded-sm bg-white/50 transition-all cursor-pointer focus:outline-none"
+            style={{
+              borderColor: task.style.penColor,
+              backgroundColor: task.completed ? task.style.penColor : "rgba(255, 255, 255, 0.5)",
+            }}
+          >
+            {task.completed && (
+              <Check
+                className="w-3.5 h-3.5 text-white stroke-[3.5]"
+                style={{ color: "#ffffff" }}
+              />
+            )}
+          </button>
+          <PointsFloat
+            points={floatPoints}
+            color={floatPoints !== null && floatPoints < 0 ? "#dc2626" : task.style.penColor}
+            triggerKey={floatKey}
+          />
+        </div>
 
         {/* Editable input field */}
         <div className="flex-1 min-w-0" id={`task-text-container-${task.id}`}>

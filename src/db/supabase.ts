@@ -97,6 +97,46 @@ export async function syncDayToSupabase(day: Day, userId: string): Promise<boole
 }
 
 /**
+ * Upsert the user's current points balance to Supabase. Idempotent —
+ * uses the user_id as PK so repeated calls just overwrite the value.
+ */
+export async function syncPointsBalanceToSupabase(userId: string, balance: number): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.from("user_points").upsert({
+      user_id: userId,
+      balance,
+      updated_at: Date.now()
+    }, { onConflict: "user_id" });
+    if (error) throw error;
+    return true;
+  } catch (err) {
+    console.error("Supabase points sync error:", err);
+    return false;
+  }
+}
+
+/**
+ * Fetch the user's points balance from Supabase. Returns null if the row
+ * doesn't exist yet (first-time user) or on error.
+ */
+export async function pullPointsBalanceFromSupabase(userId: string): Promise<number | null> {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from("user_points")
+      .select("balance")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) throw error;
+    return data?.balance ?? null;
+  } catch (err) {
+    console.error("Failed to pull points balance from Supabase:", err);
+    return null;
+  }
+}
+
+/**
  * Pull all data from Supabase for a given user and format it into Day entities.
  */
 export async function pullAllDaysFromSupabase(userId: string): Promise<Day[]> {
