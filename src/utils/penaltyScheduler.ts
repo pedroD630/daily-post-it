@@ -65,14 +65,16 @@ export function startPenaltyScheduler({
     // didn't fire exactly at 00:00 (sleeping laptop, throttled background tab).
     if (now.getHours() !== 0 || now.getMinutes() > 5) return;
 
+    // Reserve the slot IMMEDIATELY so two concurrent callers (initial check
+    // + setInterval tick, or two scheduler instances) can't both pass the
+    // guard before any side effect persists.
+    localStorage.setItem(PENALTY_KEY, todayStr);
+
     const tasks = getTodayTasks();
     const penalty = totalPenalty(tasks);
     if (penalty > 0) {
       await onPenalty(-penalty);
     }
-    // Mark as run for this date regardless of whether penalty > 0, so we
-    // don't keep checking all day.
-    localStorage.setItem(PENALTY_KEY, todayStr);
   };
 
   // First check immediately in case the page loaded mid-window.
@@ -101,18 +103,17 @@ export async function checkMissedPenalty(
   const last = localStorage.getItem(PENALTY_KEY);
   if (last === todayStr) return; // already settled
 
+  // Reserve the slot synchronously BEFORE any async work. Two concurrent
+  // callers (e.g. two loadInitialData calls triggered by auth state
+  // transitions) would otherwise both pass the guard and double-penalize.
+  localStorage.setItem(PENALTY_KEY, todayStr);
+
   const ymd = yesterdayId();
   const day = await loadDay(ymd);
-  if (!day) {
-    // Nothing to penalize (no record for yesterday). Still mark today so we
-    // don't re-check on every reload during the day.
-    localStorage.setItem(PENALTY_KEY, todayStr);
-    return;
-  }
+  if (!day) return;
 
   const penalty = totalPenalty(day.tasks);
   if (penalty > 0) {
     await onPenalty(-penalty);
   }
-  localStorage.setItem(PENALTY_KEY, todayStr);
 }
