@@ -151,19 +151,6 @@ export default function App() {
       // Load current points balance from IndexedDB
       const balance = await getBalance();
       setPointsBalance(balance);
-
-      // One-shot check for missed midnight penalty (e.g. app was closed
-      // while clock crossed midnight). Reads yesterday's day record and
-      // deducts incomplete tasks if not already settled.
-      await checkMissedPenalty(
-        async (id) => {
-          const d = await getDay(id);
-          return d ? { tasks: d.tasks } : null;
-        },
-        async (delta) => {
-          await adjustBalance(delta);
-        }
-      );
     } catch (err) {
       console.error("Failed to load initial data from IndexedDB:", err);
     }
@@ -193,20 +180,37 @@ export default function App() {
 
   // Setup Auth, cloud syncer, calendar expiry observer, and local data loading
   useEffect(() => {
+    // We track the last uid we did a cloud-pull for in localStorage so a
+    // page reload (Firebase rehydrates the persisted session and fires the
+    // auth callback) does NOT overwrite local IDB with stale cloud state.
+    // Pull only happens on a real account transition (null → uid, or
+    // uidA → uidB), per the spec note that cloud wins on login.
+    const LAST_PULLED_UID_KEY = "postit_last_pulled_uid";
+
     const unsub = initAuth(async (user) => {
       setCurrentUser(user);
       if (user) {
         try {
-          // If logged in on a new device, drag cloud records down and merge
-          await pullAllDaysFromCloud();
-          // Flush any offline sync queue immediately
-          await syncAllUnsyncedDays();
-          // Pull points balance from cloud; cloud value wins on login per spec.
-          const cloudBalance = await pullPointsBalanceFromSupabase(user.uid);
-          if (cloudBalance !== null) {
-            await setBalance(cloudBalance);
-            setPointsBalance(cloudBalance);
+          const lastPulledUid =
+            typeof localStorage !== "undefined"
+              ? localStorage.getItem(LAST_PULLED_UID_KEY)
+              : null;
+          const isFreshLogin = lastPulledUid !== user.uid;
+
+          if (isFreshLogin) {
+            // Fresh sign-in on this device or account switch — cloud wins.
+            await pullAllDaysFromCloud();
+            const cloudBalance = await pullPointsBalanceFromSupabase(user.uid);
+            if (cloudBalance !== null) {
+              await setBalance(cloudBalance);
+              setPointsBalance(cloudBalance);
+            }
+            if (typeof localStorage !== "undefined") {
+              localStorage.setItem(LAST_PULLED_UID_KEY, user.uid);
+            }
           }
+          // Always flush any pending offline writes after auth comes up.
+          await syncAllUnsyncedDays();
         } catch (e) {
           console.error("Background initial sync setup failed:", e);
         }
@@ -227,6 +231,19 @@ export default function App() {
         await adjustBalance(delta);
       },
     });
+
+    // One-shot missed-penalty recovery on mount only. The localStorage flag
+    // makes it idempotent so a stray re-fire would be a no-op, but we still
+    // gate it on a ref to avoid extra IDB reads during re-renders.
+    void checkMissedPenalty(
+      async (id) => {
+        const d = await getDay(id);
+        return d ? { tasks: d.tasks } : null;
+      },
+      async (delta) => {
+        await adjustBalance(delta);
+      },
+    );
 
     return () => {
       unsub();
@@ -331,11 +348,24 @@ export default function App() {
     };
 
     setTodayDay(updatedDay);
-    await saveDayWithSync(updatedDay);
 
-    // Award / reverse points for the toggle.
+    // CRITICAL ORDER: persist BOTH local writes (day + points) before any
+    // network call. If an auto-reconnect redirect happens during a slow
+    // network sync, our local state is already consistent — no scenario
+    // where the day shows completed but points were never awarded (or
+    // vice-versa).
+    await saveDay(updatedDay);
     if (pointsDelta !== 0) {
       await adjustBalance(pointsDelta);
+    }
+
+    // Now safely fire cloud syncs. saveDayWithSync re-saves locally (a
+    // no-op overwrite) but more importantly pushes to Supabase and queues
+    // for offline retry on failure.
+    if (auth.currentUser) {
+      syncDayToCloud(updatedDay).catch((err) =>
+        console.error(`Background day sync failed for ${updatedDay.id}:`, err)
+      );
     }
 
     // Sync state modification to Google right away if connected
