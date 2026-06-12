@@ -31,7 +31,10 @@ export interface Day {
     paperTexture?: boolean;  // snapshot of "paper texture" setting at creation time
   };
   tasks: Task[];
+  note?: string;         // free-form scratchpad text for the day
 }
+
+export type ThemeMode = "light" | "dark" | "system";
 
 export interface Settings {
   postItColor: string;   // hex (preset or custom)
@@ -39,6 +42,7 @@ export interface Settings {
   fontFamily: string;    // default, elegant, handwritten
   paletteId: string;     // ID of the active color palette (see constants/palettes.ts)
   paperTexture: boolean; // whether to render the realistic shader-based paper texture
+  theme: ThemeMode;      // app-wide color scheme preference
 }
 
-export type AppView = "main" | "history" | "settings" | "profile" | "shop";
+export type AppView = "main" | "history" | "settings" | "profile" | "shop" | "insights";

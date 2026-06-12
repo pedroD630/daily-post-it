@@ -14,12 +14,21 @@ interface HistoryViewProps {
   historyDays: Day[];
   paperTexture?: boolean;
   textureConfig?: PaperTextureConfig;
+  /** When set, the view opens focused on the day with this id (palette jump). */
+  focusDayId?: string | null;
 }
 
-export default function HistoryView({ historyDays, paperTexture = true, textureConfig }: HistoryViewProps) {
+export default function HistoryView({ historyDays, paperTexture = true, textureConfig, focusDayId }: HistoryViewProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [swipeDirection, setSwipeDirection] = useState<"left" | "right">("left");
   const [showHint, setShowHint] = useState(true);
+
+  // Jump straight to a specific day when asked (e.g. from the command palette)
+  useEffect(() => {
+    if (!focusDayId) return;
+    const idx = historyDays.findIndex((d) => d.id === focusDayId);
+    if (idx >= 0) setCurrentIndex(idx);
+  }, [focusDayId, historyDays]);
 
   // Check if they already dismissed the swipe tutorial hint in this browser
   useEffect(() => {

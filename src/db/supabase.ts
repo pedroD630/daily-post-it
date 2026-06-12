@@ -33,15 +33,27 @@ export async function syncDayToSupabase(day: Day, userId: string): Promise<boole
   if (!supabase) return false;
   try {
     // 1. Upsert Day record
-    const { error: dayErr } = await supabase.from("days").upsert({
+    const dayRow: Record<string, unknown> = {
       id: day.id,
       user_id: userId,
       date: day.date,
       created_at: day.createdAt,
       discarded: day.discarded,
       discarded_at: day.discardedAt,
-      post_it_color: day.style?.postItColor || "#fef3c7"
-    });
+      post_it_color: day.style?.postItColor || "#fef3c7",
+      note: day.note ?? null
+    };
+
+    let { error: dayErr } = await supabase.from("days").upsert(dayRow);
+
+    // Backwards-compat: if the `note` column migration hasn't been run yet,
+    // PostgREST rejects the unknown column (PGRST204). Retry without it so
+    // the rest of the day still syncs instead of failing wholesale.
+    if (dayErr && (dayErr.code === "PGRST204" || /note/i.test(dayErr.message || ""))) {
+      console.warn("Supabase 'note' column missing — run migration 003_day_note.sql. Syncing without note.");
+      delete dayRow.note;
+      ({ error: dayErr } = await supabase.from("days").upsert(dayRow));
+    }
 
     if (dayErr) throw dayErr;
 
@@ -170,7 +182,8 @@ export async function pullAllDaysFromSupabase(userId: string): Promise<Day[]> {
         style: {
           postItColor: d.post_it_color || "#fef3c7"
         },
-        tasks: []
+        tasks: [],
+        note: d.note || undefined
       });
     });
 

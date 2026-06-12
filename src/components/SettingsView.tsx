@@ -4,10 +4,10 @@
  */
 
 import React, { useState, useEffect, useRef } from "react";
-import { Settings as SettingsType, AppView } from "../types";
+import { Settings as SettingsType, AppView, ThemeMode } from "../types";
 import { PEN_PRESETS } from "../constants/colors";
 import { PALETTES, getPaletteById } from "../constants/palettes";
-import { Save, AlertCircle, Settings as SettingsIcon } from "lucide-react";
+import { Save, AlertCircle, Settings as SettingsIcon, SunMedium, Moon, MonitorSmartphone } from "lucide-react";
 
 interface SettingsViewProps {
   initialSettings: SettingsType;
@@ -85,6 +85,7 @@ export default function SettingsView({
   const [paperTextureEnabled, setPaperTextureEnabled] = useState(
     initialSettings.paperTexture === undefined ? true : initialSettings.paperTexture
   );
+  const [selectedTheme, setSelectedTheme] = useState<ThemeMode>(initialSettings.theme || "system");
 
   const activePalette = getPaletteById(selectedPaletteId);
 
@@ -224,8 +225,15 @@ export default function SettingsView({
       fontFamily: selectedFont,
       paletteId: selectedPaletteId,
       paperTexture: paperTextureEnabled,
+      theme: selectedTheme,
     });
   };
+
+  const THEME_OPTIONS: { id: ThemeMode; label: string; icon: React.ReactNode }[] = [
+    { id: "light",  label: "Light",  icon: <SunMedium className="w-4 h-4" /> },
+    { id: "dark",   label: "Dark",   icon: <Moon className="w-4 h-4" /> },
+    { id: "system", label: "Auto",   icon: <MonitorSmartphone className="w-4 h-4" /> },
+  ];
 
   return (
     <form
@@ -247,6 +255,32 @@ export default function SettingsView({
           <h2 className="font-sans font-bold text-lg text-slate-800 dark:text-slate-100">
             Appearance
           </h2>
+        </div>
+
+        {/* Section -1: Light/Dark Theme Selector */}
+        <div className="flex flex-col gap-2" id="settings-section-theme">
+          <label className="font-sans text-xs font-bold uppercase tracking-wider text-slate-500">
+            App Theme
+          </label>
+          <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl" id="settings-theme-segment">
+            {THEME_OPTIONS.map((opt) => (
+              <button
+                id={`theme-option-${opt.id}`}
+                key={opt.id}
+                type="button"
+                aria-label={`${opt.label} theme`}
+                onClick={() => setSelectedTheme(opt.id)}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  selectedTheme === opt.id
+                    ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                }`}
+              >
+                {opt.icon}
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Section 0: Palette Theme Selector */}

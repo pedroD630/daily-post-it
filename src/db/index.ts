@@ -15,7 +15,8 @@ export const DEFAULT_SETTINGS: Settings = {
   penColor: "#1f2937",    // Black Preset
   fontFamily: "sans-serif",
   paletteId: "pastel",
-  paperTexture: true
+  paperTexture: true,
+  theme: "system"
 };
 
 let dbPromise: Promise<IDBDatabase> | null = null;

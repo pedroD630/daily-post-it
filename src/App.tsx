@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from "react";
-import { Day, Task, Settings, AppView } from "./types";
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import { Day, Task, Settings, AppView, ThemeMode } from "./types";
 import { getSettings, saveSettings, getDay, saveDay, getAllDays, getBalance, applyPointsDelta, setBalance } from "./db";
 import { DEFAULT_SETTINGS } from "./db";
 import Navbar from "./components/Navbar";
@@ -13,8 +13,11 @@ import HistoryView from "./components/HistoryView";
 import SettingsView from "./components/SettingsView";
 import ProfileView from "./components/ProfileView";
 import ShopView from "./components/ShopView";
+import InsightsView from "./components/InsightsView";
+import CommandPalette from "./components/CommandPalette";
 import { getPaletteById } from "./constants/palettes";
 import { pointValue } from "./utils/points";
+import { computeStreak } from "./utils/insights";
 import { startPenaltyScheduler, checkMissedPenalty } from "./utils/penaltyScheduler";
 import { syncPointsBalanceToSupabase, pullPointsBalanceFromSupabase } from "./db/supabase";
 import { Reward } from "./constants/rewards";
@@ -96,6 +99,10 @@ export default function App() {
 
   // Points & Rewards
   const [pointsBalance, setPointsBalance] = useState<number>(0);
+
+  // Command palette + cross-view navigation helpers
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [historyFocusDayId, setHistoryFocusDayId] = useState<string | null>(null);
   // Always-fresh ref of today's tasks for the penalty scheduler (which runs
   // on a setInterval and would otherwise capture a stale closure).
   const todayDayRef = useRef<Day | null>(null);
@@ -116,6 +123,48 @@ export default function App() {
     }
     return next;
   };
+
+  // ---------------------------------------------------------------
+  // Theme: apply/remove the `dark` class on <html> from settings,
+  // following the OS preference live when in "system" mode.
+  // ---------------------------------------------------------------
+  useEffect(() => {
+    const mql = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      const dark = settings.theme === "dark" || (settings.theme === "system" && mql.matches);
+      document.documentElement.classList.toggle("dark", dark);
+    };
+    apply();
+    mql.addEventListener("change", apply);
+    return () => mql.removeEventListener("change", apply);
+  }, [settings.theme]);
+
+  // Global keyboard shortcut: Ctrl/Cmd+K toggles the command palette
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  // A palette jump pins history to a day; release the pin on leaving the view
+  useEffect(() => {
+    if (currentView !== "history" && historyFocusDayId) {
+      setHistoryFocusDayId(null);
+    }
+  }, [currentView, historyFocusDayId]);
+
+  // Current productivity streak (recomputed when any day changes)
+  const streak = useMemo(() => {
+    const everything = todayDay
+      ? [...allDaysList.filter((d) => d.id !== todayDay.id), todayDay]
+      : allDaysList;
+    return computeStreak(everything);
+  }, [allDaysList, todayDay]);
 
   const loadInitialData = async () => {
     try {
@@ -594,6 +643,36 @@ export default function App() {
     await saveDayWithSync(updatedDay);
   };
 
+  // Day-note scratchpad commit (fires on textarea blur)
+  const handleNoteChange = async (note: string) => {
+    if (!todayDay) return;
+    const updatedDay = { ...todayDay, note: note.trim() ? note : undefined };
+    setTodayDay(updatedDay);
+    await saveDayWithSync(updatedDay);
+  };
+
+  // Quick mutations triggered from the command palette — persist immediately
+  const applyQuickSettings = async (patch: Partial<Settings>) => {
+    const next = { ...settings, ...patch };
+    setSettings(next);
+    setLivePostItColor(next.postItColor);
+    try {
+      await saveSettings(next);
+    } catch (err) {
+      console.error("Quick settings change failed to persist:", err);
+    }
+  };
+
+  // Jump from palette result to the day that owns it
+  const handleJumpToDay = (dayId: string) => {
+    if (todayDay && dayId === todayDay.id) {
+      setCurrentView("main");
+      return;
+    }
+    setHistoryFocusDayId(dayId);
+    setCurrentView("history");
+  };
+
   // Discarding/Crumpling the Post-it Note
   const handleCrumpleDiscard = async () => {
     if (!todayDay || isCrumpling) return;
@@ -761,7 +840,28 @@ export default function App() {
       />
 
       {/* Universal Fixed Top Navigation */}
-      <Navbar currentView={currentView} onViewChange={setCurrentView} currentUserPhoto={currentUser?.photoURL} />
+      <Navbar
+        currentView={currentView}
+        onViewChange={setCurrentView}
+        currentUserPhoto={currentUser?.photoURL}
+        onOpenPalette={() => setPaletteOpen(true)}
+      />
+
+      {/* Command Palette — Ctrl/Cmd+K or the navbar search button */}
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        days={todayDay ? [todayDay, ...allDaysList.filter((d) => d.id !== todayDay.id)] : allDaysList}
+        todayId={getTodayId()}
+        ctx={{
+          setView: setCurrentView,
+          newTask: handleAddTask,
+          setTheme: (theme: ThemeMode) => void applyQuickSettings({ theme }),
+          setColorPalette: (paletteId: string) => void applyQuickSettings({ paletteId }),
+          togglePaperTexture: () => void applyQuickSettings({ paperTexture: !settings.paperTexture }),
+          jumpToDay: handleJumpToDay,
+        }}
+      />
 
       {/* Expiry Warning Alert Banner */}
       {calendarExpired && (
@@ -841,6 +941,9 @@ export default function App() {
                     paperTexture={settings.paperTexture}
                     textureConfig={getPaletteById(settings.paletteId).texture}
                     pointsBalance={pointsBalance}
+                    onNoteChange={handleNoteChange}
+                    streak={streak}
+                    onOpenInsights={() => setCurrentView("insights")}
                   />
                 </motion.div>
 
@@ -877,6 +980,14 @@ export default function App() {
                 historyDays={historyDays}
                 paperTexture={settings.paperTexture}
                 textureConfig={getPaletteById(settings.paletteId).texture}
+                focusDayId={historyFocusDayId}
+              />
+            )}
+
+            {currentView === "insights" && (
+              <InsightsView
+                allDays={todayDay ? [...allDaysList.filter((d) => d.id !== todayDay.id), todayDay] : allDaysList}
+                pointsBalance={pointsBalance}
               />
             )}
 

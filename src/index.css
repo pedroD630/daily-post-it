@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Class-based dark mode: `dark:` utilities activate when .dark is on <html> */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
@@ -54,6 +57,25 @@ html, body, #root {
   transition: background-color 0.4s ease;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
+}
+
+html.dark, html.dark body, html.dark #root {
+  background-color: #0c1322;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* Ruled lines for the day-note scratchpad (like a real notepad) */
+.scratchpad-lines {
+  background-image: repeating-linear-gradient(
+    transparent,
+    transparent 27px,
+    rgba(0, 0, 0, 0.08) 27px,
+    rgba(0, 0, 0, 0.08) 28px
+  );
+  line-height: 28px;
 }
 
 /* Hide scrollbars for a clean app feel */
