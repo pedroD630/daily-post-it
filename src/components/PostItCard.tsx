@@ -3,12 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Day, Task } from "../types";
 import TaskItem from "./TaskItem";
 import { Reorder } from "motion/react";
-import { Zap, AlertTriangle } from "lucide-react";
+import { Zap, AlertTriangle, Flame } from "lucide-react";
 import { PostItPaperTexture } from "./PostItPaperTexture";
+import ConfettiBurst from "./ConfettiBurst";
 import type { PaperTextureConfig } from "../constants/palettes";
 import { formatBalance } from "../utils/points";
 
@@ -40,6 +41,12 @@ interface PostItCardProps {
    * Undefined hides the indicator (e.g. in history view if not relevant).
    */
   pointsBalance?: number;
+  /** Fires on blur with the final scratchpad note text. */
+  onNoteChange?: (note: string) => void;
+  /** Current productivity streak; rendered as a flame chip when >= 2. */
+  streak?: number;
+  /** Invoked when the streak chip is tapped (e.g. open Insights). */
+  onOpenInsights?: () => void;
 }
 
 export default function PostItCard({
@@ -56,13 +63,34 @@ export default function PostItCard({
   calendarEvents = [],
   paperTexture: paperTextureFallback = true,
   textureConfig,
-  pointsBalance
+  pointsBalance,
+  onNoteChange,
+  streak = 0,
+  onOpenInsights
 }: PostItCardProps) {
   // Effective texture flag: per-day snapshot wins; otherwise fall back to the
   // global setting passed via props. This keeps each historical post-it
   // visually stable even if the user later flips the global toggle.
   const effectivePaperTexture =
     day.style.paperTexture !== undefined ? day.style.paperTexture : paperTextureFallback;
+
+  // Scratchpad note — local while typing, committed via onNoteChange on blur
+  const [noteText, setNoteText] = useState(day.note || "");
+  useEffect(() => {
+    setNoteText(day.note || "");
+  }, [day.id, day.note]);
+
+  // All-done celebration: fire confetti when the LAST task gets completed.
+  // Rising-edge detection so reloads/readonly cards never re-fire.
+  const allDone = !readOnly && day.tasks.length > 0 && day.tasks.every((t) => t.completed);
+  const prevAllDoneRef = useRef(allDone);
+  const [confettiBurst, setConfettiBurst] = useState(0);
+  useEffect(() => {
+    if (allDone && !prevAllDoneRef.current) {
+      setConfettiBurst((b) => b + 1);
+    }
+    prevAllDoneRef.current = allDone;
+  }, [allDone]);
   // Separate and sort tasks by explicit order field, fallback to creation time
   const incompleteTasks = day.tasks
     .filter((t) => !t.completed)
@@ -155,15 +183,44 @@ export default function PostItCard({
           {day.date}
         </span>
 
-        {day.discarded && (
-          <div
-            id="postit-discarded-badge"
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider font-bold bg-black/10 text-slate-800"
-            style={{ mixBlendMode: "multiply" }}
-          >
-            🗑️ Discarded
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {/* Streak flame chip — tap to open Insights */}
+          {!readOnly && streak >= 2 && (
+            <button
+              id="postit-streak-chip"
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenInsights?.();
+              }}
+              title={`${streak}-day streak — view insights`}
+              className="pointer-events-auto flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-500/15 border border-orange-500/25 text-orange-700 font-mono text-[10px] font-bold cursor-pointer hover:scale-105 active:scale-95 transition-transform"
+            >
+              <Flame className="w-3 h-3" fill="currentColor" />
+              {streak}
+            </button>
+          )}
+
+          {/* All-done ribbon */}
+          {allDone && !day.discarded && (
+            <div
+              id="postit-alldone-badge"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider font-bold bg-emerald-600/15 text-emerald-800 border border-emerald-600/20"
+            >
+              ✓ All done!
+            </div>
+          )}
+
+          {day.discarded && (
+            <div
+              id="postit-discarded-badge"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider font-bold bg-black/10 text-slate-800"
+              style={{ mixBlendMode: "multiply" }}
+            >
+              🗑️ Discarded
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Primary Task Area — relative + z-10 so tasks render above the shader overlay */}
@@ -293,6 +350,42 @@ export default function PostItCard({
           </div>
         )}
       </div>
+
+      {/* Day-note scratchpad — free-form handwritten notes below the tasks.
+          Editable on today's card; history shows it read-only when present. */}
+      {(onNoteChange || (readOnly && day.note)) && (
+        <div
+          id={`postit-note-area-${day.id}`}
+          className="relative z-10 mt-4 pt-3 border-t border-dashed border-black/15 select-text"
+        >
+          <span className="text-[10px] uppercase font-mono tracking-wider opacity-40 pl-1 select-none">
+            ✎ Notes
+          </span>
+          {readOnly ? (
+            <p className="scratchpad-lines font-handwritten text-sm text-slate-700/90 px-1 mt-1 whitespace-pre-wrap break-words">
+              {day.note}
+            </p>
+          ) : (
+            <textarea
+              id={`postit-note-input-${day.id}`}
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              onBlur={() => {
+                if (noteText !== (day.note || "")) {
+                  onNoteChange?.(noteText);
+                }
+              }}
+              placeholder="Scribble a thought, an idea, anything..."
+              rows={Math.max(2, noteText.split("\n").length)}
+              className="scratchpad-lines w-full bg-transparent resize-none outline-none font-handwritten text-sm text-slate-700/90 placeholder:text-slate-500/40 px-1 mt-1 break-words"
+              style={{ minHeight: "56px" }}
+            />
+          )}
+        </div>
+      )}
+
+      {/* Confetti celebration when the last task is completed */}
+      <ConfettiBurst burst={confettiBurst} />
 
       {/* Points balance indicator — bottom-left of the post-it.
           Subtle when positive, bold red when in the negative. */}
