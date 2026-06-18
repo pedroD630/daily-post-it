@@ -41,17 +41,33 @@ export async function syncDayToSupabase(day: Day, userId: string): Promise<boole
       discarded: day.discarded,
       discarded_at: day.discardedAt,
       post_it_color: day.style?.postItColor || "#fef3c7",
-      note: day.note ?? null
+      note: day.note ?? null,
+      updated_at: day.updatedAt ?? Date.now()
     };
 
     let { error: dayErr } = await supabase.from("days").upsert(dayRow);
 
-    // Backwards-compat: if the `note` column migration hasn't been run yet,
-    // PostgREST rejects the unknown column (PGRST204). Retry without it so
-    // the rest of the day still syncs instead of failing wholesale.
-    if (dayErr && (dayErr.code === "PGRST204" || /note/i.test(dayErr.message || ""))) {
-      console.warn("Supabase 'note' column missing — run migration 003_day_note.sql. Syncing without note.");
-      delete dayRow.note;
+    // Backwards-compat: PostgREST rejects unknown columns (PGRST204) when
+    // migrations haven't been run. Strip the offending column(s) and retry
+    // so the rest of the day keeps syncing instead of failing wholesale.
+    let attemptedRetry = false;
+    if (dayErr && (dayErr.code === "PGRST204" || /column/i.test(dayErr.message || ""))) {
+      const msg = (dayErr.message || "").toLowerCase();
+      if (msg.includes("updated_at")) {
+        console.warn("Supabase 'updated_at' column missing — run migration 004_day_updated_at.sql.");
+        delete dayRow.updated_at;
+        attemptedRetry = true;
+      }
+      if (msg.includes("note")) {
+        console.warn("Supabase 'note' column missing — run migration 003_day_note.sql.");
+        delete dayRow.note;
+        attemptedRetry = true;
+      }
+      // Conservative second-pass retry without either schema-added column.
+      if (!attemptedRetry) {
+        delete dayRow.updated_at;
+        delete dayRow.note;
+      }
       ({ error: dayErr } = await supabase.from("days").upsert(dayRow));
     }
 
@@ -192,7 +208,8 @@ export async function pullAllDaysFromSupabase(userId: string): Promise<Day[]> {
           postItColor: d.post_it_color || "#fef3c7"
         },
         tasks: [],
-        note: d.note || undefined
+        note: d.note || undefined,
+        updatedAt: d.updated_at ? Number(d.updated_at) : 0
       });
     });
 

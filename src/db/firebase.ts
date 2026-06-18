@@ -333,7 +333,17 @@ if (typeof window !== "undefined") {
 }
 
 /**
- * Pull all days from Supabase Cloud upon login and sync to local IndexedDB
+ * Pull all days from Supabase Cloud and merge into IndexedDB.
+ *
+ * Last-write-wins by `updatedAt`: a cloud row only overwrites the local
+ * copy when it is at least as fresh. If the user is currently typing on
+ * this device the local row's updatedAt will be ahead of cloud — we skip
+ * writing it, preserving the in-progress edit. The push side (via the
+ * offline queue + handleTextChangeFinished) will eventually catch the
+ * cloud up.
+ *
+ * Without this guard, a heartbeat or visibility refresh would clobber
+ * mid-typing state with the pre-blur snapshot held in Supabase.
  */
 export async function pullAllDaysFromCloud(): Promise<Day[]> {
   const user = auth.currentUser;
@@ -341,10 +351,18 @@ export async function pullAllDaysFromCloud(): Promise<Day[]> {
 
   try {
     const { pullAllDaysFromSupabase } = await import("./supabase");
+    const { getDay } = await import("./index");
     const cloudDays = await pullAllDaysFromSupabase(user.uid);
 
-    for (const dayData of cloudDays) {
-      await saveDay(dayData);
+    for (const cloudDay of cloudDays) {
+      const local = await getDay(cloudDay.id);
+      const localUpdated = local?.updatedAt ?? 0;
+      const cloudUpdated = cloudDay.updatedAt ?? 0;
+      // Tie-breaker: cloud wins on equality so a brand-new pull (both 0)
+      // populates the IDB; only a strictly fresher local skips the write.
+      if (cloudUpdated >= localUpdated) {
+        await saveDay(cloudDay);
+      }
     }
 
     return cloudDays;
