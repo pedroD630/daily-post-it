@@ -44,6 +44,14 @@ import {
   deleteGoogleEvent
 } from "./db/googleSync";
 
+// Tag a day with a fresh updatedAt timestamp. EVERY local mutation must
+// route through this before being persisted — pullAllDaysFromCloud uses
+// the timestamp to skip overwriting locally-fresh state with a stale
+// cloud snapshot (e.g. while the user is typing).
+function touch<T extends { updatedAt?: number }>(day: T): T {
+  return { ...day, updatedAt: Date.now() };
+}
+
 // Helper to convert hex to beautiful low-opacity background value
 function hexToRgba(hex: string, opacity: number): string {
   let cleanHex = hex.replace(/^#/, "");
@@ -187,6 +195,7 @@ export default function App() {
             paperTexture: loadedSettings.paperTexture,
           },
           tasks: [],
+          updatedAt: Date.now(),
         };
         await saveDay(todayRecord);
       }
@@ -205,15 +214,15 @@ export default function App() {
     }
   };
 
-  // Wrapper for saving days to IndexedDB + Background Sync to Cloud if logged in
-  const saveDayWithSync = async (day: Day) => {
-    // 1. Instant local persistence to IndexedDB
-    await saveDay(day);
-
-    // 2. Background sync to Supabase if authenticated
+  // Wrapper for saving days to IndexedDB + Background Sync to Cloud if logged in.
+  // Touches updatedAt so the cloud-merge logic knows this is the freshest copy.
+  const saveDayWithSync = async (day: Day): Promise<Day> => {
+    const stamped = touch(day);
+    await saveDay(stamped);
     if (auth.currentUser) {
-      await syncDayToCloud(day);
+      await syncDayToCloud(stamped);
     }
+    return stamped;
   };
 
   const handleRefreshData = async () => {
@@ -456,10 +465,10 @@ export default function App() {
       return task;
     });
 
-    const updatedDay = {
+    const updatedDay = touch({
       ...todayDay,
       tasks: updatedTasks,
-    };
+    });
 
     setTodayDay(updatedDay);
 
@@ -473,9 +482,7 @@ export default function App() {
       await adjustBalance(pointsDelta);
     }
 
-    // Now safely fire cloud syncs. saveDayWithSync re-saves locally (a
-    // no-op overwrite) but more importantly pushes to Supabase and queues
-    // for offline retry on failure.
+    // Now safely fire cloud syncs (background, queue-aware via syncDayToCloud).
     if (auth.currentUser) {
       syncDayToCloud(updatedDay).catch((err) =>
         console.error(`Background day sync failed for ${updatedDay.id}:`, err)
@@ -502,7 +509,9 @@ export default function App() {
     setAllDaysList(refreshedDays);
   };
 
-  // Inline typing change listener (updates react state and local IndexedDB instantly)
+  // Inline typing change listener (updates react state and local IndexedDB instantly).
+  // CRITICAL: touch() bumps updatedAt so refreshFromCloud running mid-typing
+  // sees local as fresher and won't clobber the IDB with the pre-blur snapshot.
   const handleTextChange = async (taskId: string, text: string) => {
     if (!todayDay) return;
 
@@ -516,10 +525,10 @@ export default function App() {
       return task;
     });
 
-    const updatedDay = {
+    const updatedDay = touch({
       ...todayDay,
       tasks: updatedTasks,
-    };
+    });
 
     setTodayDay(updatedDay);
     await saveDay(updatedDay); // save locally fast, don't trigger online write until typing finished (blur/enter)

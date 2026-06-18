@@ -32,6 +32,13 @@ export interface Day {
   };
   tasks: Task[];
   note?: string;         // free-form scratchpad text for the day
+  /**
+   * Wall-clock timestamp bumped on every LOCAL mutation. Used by
+   * pullAllDaysFromCloud to skip overwriting a row that is fresher
+   * locally than what the cloud reflects — fixes the bug where typing
+   * was clobbered by a background refresh pulling the pre-blur snapshot.
+   */
+  updatedAt?: number;
 }
 
 export type ThemeMode = "light" | "dark" | "system";
