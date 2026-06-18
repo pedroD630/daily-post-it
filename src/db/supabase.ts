@@ -129,19 +129,28 @@ export async function syncPointsBalanceToSupabase(userId: string, balance: numbe
 }
 
 /**
- * Fetch the user's points balance from Supabase. Returns null if the row
- * doesn't exist yet (first-time user) or on error.
+ * Fetch the user's points balance + write timestamp from Supabase.
+ * Returns null if the row doesn't exist yet (first-time user) or on error.
+ * The `updatedAt` is used by the caller for last-write-wins merge with the
+ * device's local lastUpdated, preventing stale cloud value from clobbering
+ * fresh local mutations.
  */
-export async function pullPointsBalanceFromSupabase(userId: string): Promise<number | null> {
+export async function pullPointsBalanceFromSupabase(
+  userId: string
+): Promise<{ balance: number; updatedAt: number } | null> {
   if (!supabase) return null;
   try {
     const { data, error } = await supabase
       .from("user_points")
-      .select("balance")
+      .select("balance, updated_at")
       .eq("user_id", userId)
       .maybeSingle();
     if (error) throw error;
-    return data?.balance ?? null;
+    if (!data) return null;
+    return {
+      balance: Number(data.balance ?? 0),
+      updatedAt: Number(data.updated_at ?? 0),
+    };
   } catch (err) {
     console.error("Failed to pull points balance from Supabase:", err);
     return null;

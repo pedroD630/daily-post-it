@@ -164,6 +164,21 @@ export async function getBalance(): Promise<number> {
   });
 }
 
+/** Both the balance and the last-touch timestamp, for cloud-merge resolution. */
+export async function getBalanceMeta(): Promise<{ balance: number; lastUpdated: number }> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("points_ledger", "readonly");
+    const store = tx.objectStore("points_ledger");
+    const req = store.get(POINTS_BALANCE_KEY);
+    req.onsuccess = () => {
+      const row = req.result as PointsLedgerRow | undefined;
+      resolve({ balance: row?.balance ?? 0, lastUpdated: row?.lastUpdated ?? 0 });
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
 /**
  * Overwrite balance with an explicit value (used after pulling from cloud).
  * Returns the value written.

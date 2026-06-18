@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Day, Task, Settings, AppView, ThemeMode } from "./types";
-import { getSettings, saveSettings, getDay, saveDay, getAllDays, getBalance, applyPointsDelta, setBalance } from "./db";
+import { getSettings, saveSettings, getDay, saveDay, getAllDays, getBalance, getBalanceMeta, applyPointsDelta, setBalance } from "./db";
 import { DEFAULT_SETTINGS } from "./db";
 import Navbar from "./components/Navbar";
 import PostItCard from "./components/PostItCard";
@@ -227,45 +227,81 @@ export default function App() {
     await loadInitialData();
   };
 
+  // Refresh-from-cloud is the single sync entry point used on auth,
+  // visibility change, online event, and the periodic timer. The order
+  // matters and is *deliberate*:
+  //   1. Push the offline queue first so the cloud reflects every local
+  //      mutation that might have been interrupted (auto-reconnect
+  //      redirect, mobile background-kill, network blip). syncDayToCloud
+  //      queues each day BEFORE the network call, so nothing in flight
+  //      is lost — even reload mid-await re-pushes on next refresh.
+  //   2. Pull days from the cloud. Now the cloud is canonical and pulling
+  //      cannot clobber un-synced local work.
+  //   3. Merge the points balance by timestamp (last-write-wins). Cloud
+  //      only overwrites local if its updated_at is fresher; otherwise
+  //      we push the local value back up. This is what enables
+  //      cross-device sync without losing offline points adjustments.
+  //   4. Re-read everything from IDB into React state.
+  const isRefreshingRef = useRef(false);
+  const lastRefreshAtRef = useRef(0);
+
+  const refreshFromCloud = async (uid: string, opts: { force?: boolean } = {}) => {
+    if (isRefreshingRef.current) return;
+    if (!opts.force && Date.now() - lastRefreshAtRef.current < 5_000) return; // throttle
+    isRefreshingRef.current = true;
+    try {
+      if (navigator.onLine) {
+        try {
+          await syncAllUnsyncedDays();
+        } catch (e) {
+          console.warn("Pre-pull queue flush failed:", e);
+        }
+        try {
+          await pullAllDaysFromCloud();
+        } catch (e) {
+          console.warn("Cloud days pull failed:", e);
+        }
+        try {
+          const cloud = await pullPointsBalanceFromSupabase(uid);
+          if (cloud) {
+            const local = await getBalanceMeta();
+            if (cloud.updatedAt > local.lastUpdated) {
+              await setBalance(cloud.balance);
+              setPointsBalance(cloud.balance);
+            } else if (local.lastUpdated > cloud.updatedAt) {
+              void syncPointsBalanceToSupabase(uid, local.balance);
+            }
+          }
+        } catch (e) {
+          console.warn("Points balance merge failed:", e);
+        }
+      }
+      await loadInitialData();
+      lastRefreshAtRef.current = Date.now();
+    } finally {
+      isRefreshingRef.current = false;
+    }
+  };
+
+  // Keep refreshFromCloud reachable from non-effect callbacks (visibility,
+  // focus, online) without re-binding on every render.
+  const refreshFromCloudRef = useRef(refreshFromCloud);
+  refreshFromCloudRef.current = refreshFromCloud;
+
   // Setup Auth, cloud syncer, calendar expiry observer, and local data loading
   useEffect(() => {
-    // We track the last uid we did a cloud-pull for in localStorage so a
-    // page reload (Firebase rehydrates the persisted session and fires the
-    // auth callback) does NOT overwrite local IDB with stale cloud state.
-    // Pull only happens on a real account transition (null → uid, or
-    // uidA → uidB), per the spec note that cloud wins on login.
-    const LAST_PULLED_UID_KEY = "postit_last_pulled_uid";
+    // Stale flag from a previous version that gated cloud pulls — now removed
+    // because it broke cross-device sync (mobile never pulled desktop's
+    // writes). Safe to delete on every boot; no-op if absent.
+    try { localStorage.removeItem("postit_last_pulled_uid"); } catch {}
 
     const unsub = initAuth(async (user) => {
       setCurrentUser(user);
       if (user) {
-        try {
-          const lastPulledUid =
-            typeof localStorage !== "undefined"
-              ? localStorage.getItem(LAST_PULLED_UID_KEY)
-              : null;
-          const isFreshLogin = lastPulledUid !== user.uid;
-
-          if (isFreshLogin) {
-            // Fresh sign-in on this device or account switch — cloud wins.
-            await pullAllDaysFromCloud();
-            const cloudBalance = await pullPointsBalanceFromSupabase(user.uid);
-            if (cloudBalance !== null) {
-              await setBalance(cloudBalance);
-              setPointsBalance(cloudBalance);
-            }
-            if (typeof localStorage !== "undefined") {
-              localStorage.setItem(LAST_PULLED_UID_KEY, user.uid);
-            }
-          }
-          // Always flush any pending offline writes after auth comes up.
-          await syncAllUnsyncedDays();
-        } catch (e) {
-          console.error("Background initial sync setup failed:", e);
-        }
+        await refreshFromCloudRef.current(user.uid, { force: true });
+      } else {
+        await loadInitialData();
       }
-      // Re-trigger visual layout load of active note items
-      await loadInitialData();
     });
 
     // Calendar expiry observer
@@ -281,9 +317,7 @@ export default function App() {
       },
     });
 
-    // One-shot missed-penalty recovery on mount only. The localStorage flag
-    // makes it idempotent so a stray re-fire would be a no-op, but we still
-    // gate it on a ref to avoid extra IDB reads during re-renders.
+    // One-shot missed-penalty recovery on mount only.
     void checkMissedPenalty(
       async (id) => {
         const d = await getDay(id);
@@ -294,10 +328,41 @@ export default function App() {
       },
     );
 
+    // Cross-device sync triggers — refresh when the tab regains focus
+    // (typical mobile pattern: open the app on the phone and immediately
+    // see what the desktop just synced) or when the network comes back.
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      const user = auth.currentUser;
+      if (!user) return;
+      void refreshFromCloudRef.current(user.uid);
+    };
+    const onOnline = () => {
+      const user = auth.currentUser;
+      if (!user) return;
+      void refreshFromCloudRef.current(user.uid, { force: true });
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    window.addEventListener("online", onOnline);
+
+    // Background heartbeat: while the tab is visible, refresh every 60s so
+    // an idle tab doesn't drift from cloud state for very long.
+    const heartbeat = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      const user = auth.currentUser;
+      if (!user) return;
+      void refreshFromCloudRef.current(user.uid);
+    }, 60_000);
+
     return () => {
       unsub();
       unsubExpired();
       stopPenaltyScheduler();
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+      window.removeEventListener("online", onOnline);
+      window.clearInterval(heartbeat);
     };
   }, []);
 
