@@ -273,31 +273,35 @@ function addToOfflineQueue(dayId: string) {
 }
 
 /**
- * Cloud Sync single Day: Sync solely to Supabase
+ * Cloud Sync single Day to Supabase.
+ *
+ * IMPORTANT: queue-first design — the day is added to the offline queue
+ * BEFORE the network call starts. If the page is closed mid-flight (reload
+ * from auto-reconnect, tab swipe-killed, network blip), the day stays
+ * queued and is re-pushed by syncAllUnsyncedDays on next boot. This is
+ * what prevents the cross-device sync hole where a pull from cloud would
+ * later clobber local changes that never made it to Supabase.
  */
 export async function syncDayToCloud(day: Day): Promise<void> {
   const user = auth.currentUser;
   if (!user) return; // Only sync when logged in
 
-  if (!navigator.onLine) {
-    addToOfflineQueue(day.id);
-    return;
-  }
+  // Always queue first — covers offline AND in-flight interruption alike.
+  addToOfflineQueue(day.id);
+
+  if (!navigator.onLine) return;
 
   try {
-    // Sync solely to Supabase
     const success = await syncDayToSupabase(day, user.uid);
-    if (!success) {
-      throw new Error("Supabase sync failed");
-    }
+    if (!success) throw new Error("Supabase sync failed");
 
-    // Successfully synced, remove from offline queue if it was in there
+    // Sync confirmed by the server; safe to dequeue.
     const queue = getOfflineQueue();
     const updatedQueue = queue.filter(item => item.dayId !== day.id);
     saveOfflineQueue(updatedQueue);
   } catch (err) {
     console.error(`Failed to background-sync day ${day.id}:`, err);
-    addToOfflineQueue(day.id);
+    // Stays queued; next syncAllUnsyncedDays will retry.
   }
 }
 
