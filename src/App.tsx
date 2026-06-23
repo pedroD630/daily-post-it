@@ -195,7 +195,11 @@ export default function App() {
             paperTexture: loadedSettings.paperTexture,
           },
           tasks: [],
-          updatedAt: Date.now(),
+          // Intentionally NOT setting updatedAt here. This is a defensive
+          // auto-create (the user hasn't touched today yet) so any cloud
+          // copy of today — even one with cloud.updatedAt = 0 (e.g.
+          // migration 004 hasn't been run) — should win the merge and
+          // populate the shell with the real data from another device.
         };
         await saveDay(todayRecord);
       }
@@ -934,6 +938,11 @@ export default function App() {
           setColorPalette: (paletteId: string) => void applyQuickSettings({ paletteId }),
           togglePaperTexture: () => void applyQuickSettings({ paperTexture: !settings.paperTexture }),
           jumpToDay: handleJumpToDay,
+          forceSync: () => {
+            const user = auth.currentUser;
+            if (!user) return;
+            void refreshFromCloudRef.current(user.uid, { force: true });
+          },
         }}
       />
 

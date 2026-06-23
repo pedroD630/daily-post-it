@@ -18,6 +18,7 @@ import {
   Search, Plus, StickyNote, History, ShoppingBag, Settings as SettingsIcon,
   User as UserIcon, BarChart3, SunMedium, Moon, MonitorSmartphone,
   Palette as PaletteIcon, Layers, CheckCircle2, Circle, CornerDownLeft,
+  RefreshCw,
 } from "lucide-react";
 import { Day, AppView, ThemeMode } from "../types";
 import { PALETTES } from "../constants/palettes";
@@ -29,6 +30,7 @@ export interface PaletteCommandContext {
   setColorPalette: (paletteId: string) => void;
   togglePaperTexture: () => void;
   jumpToDay: (dayId: string) => void;
+  forceSync: () => void;
 }
 
 interface CommandPaletteProps {
@@ -89,6 +91,7 @@ export default function CommandPalette({ open, onClose, days, todayId, ctx }: Co
     const close = (fn: () => void) => () => { fn(); onClose(); };
     const items: ActionItem[] = [
       { kind: "action", id: "new-task", label: "New task", hint: "today's post-it", icon: <Plus className="w-4 h-4" />, keywords: "new task add create todo nova tarefa adicionar criar", run: close(() => { ctx.setView("main"); ctx.newTask(); }) },
+      { kind: "action", id: "force-sync", label: "Force sync from cloud", hint: "pull latest", icon: <RefreshCw className="w-4 h-4" />, keywords: "sync refresh pull cloud sincronizar atualizar nuvem", run: close(() => ctx.forceSync()) },
       { kind: "action", id: "go-today", label: "Go to Today", icon: <StickyNote className="w-4 h-4" />, keywords: "today main post-it hoje principal", run: close(() => ctx.setView("main")) },
       { kind: "action", id: "go-history", label: "Go to History", icon: <History className="w-4 h-4" />, keywords: "history past days histórico passado", run: close(() => ctx.setView("history")) },
       { kind: "action", id: "go-insights", label: "Go to Insights", hint: "streak & stats", icon: <BarChart3 className="w-4 h-4" />, keywords: "insights stats statistics streak chart estatísticas gráfico", run: close(() => ctx.setView("insights")) },

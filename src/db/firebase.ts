@@ -354,6 +354,9 @@ export async function pullAllDaysFromCloud(): Promise<Day[]> {
     const { getDay } = await import("./index");
     const cloudDays = await pullAllDaysFromSupabase(user.uid);
 
+    let wrote = 0;
+    let skipped = 0;
+    const skippedDetails: Array<{ id: string; localUpdated: number; cloudUpdated: number; localTasks: number; cloudTasks: number }> = [];
     for (const cloudDay of cloudDays) {
       const local = await getDay(cloudDay.id);
       const localUpdated = local?.updatedAt ?? 0;
@@ -362,7 +365,21 @@ export async function pullAllDaysFromCloud(): Promise<Day[]> {
       // populates the IDB; only a strictly fresher local skips the write.
       if (cloudUpdated >= localUpdated) {
         await saveDay(cloudDay);
+        wrote += 1;
+      } else {
+        skipped += 1;
+        skippedDetails.push({
+          id: cloudDay.id,
+          localUpdated,
+          cloudUpdated,
+          localTasks: local?.tasks.length ?? 0,
+          cloudTasks: cloudDay.tasks.length,
+        });
       }
+    }
+    console.log(`[sync] cloud → local: pulled ${cloudDays.length} days, wrote ${wrote}, skipped ${skipped} (local newer)`);
+    if (skipped > 0) {
+      console.log("[sync] skipped days (local was newer):", skippedDetails);
     }
 
     return cloudDays;
