@@ -354,15 +354,60 @@ export async function pullAllDaysFromCloud(): Promise<Day[]> {
     const { getDay } = await import("./index");
     const cloudDays = await pullAllDaysFromSupabase(user.uid);
 
+    let wrote = 0;
+    let skipped = 0;
+    let recovered = 0;
+    const skippedDetails: Array<{ id: string; localUpdated: number; cloudUpdated: number; localTasks: number; cloudTasks: number }> = [];
+
     for (const cloudDay of cloudDays) {
       const local = await getDay(cloudDay.id);
       const localUpdated = local?.updatedAt ?? 0;
       const cloudUpdated = cloudDay.updatedAt ?? 0;
-      // Tie-breaker: cloud wins on equality so a brand-new pull (both 0)
-      // populates the IDB; only a strictly fresher local skips the write.
+
+      // RECOVERY PATH: local is an empty shell (no tasks, no note) AND cloud
+      // has actual content. Always take cloud, regardless of timestamps.
+      //
+      // Why this matters: an older version of the code stamped the auto-
+      // created "today" with updatedAt=Date.now(), which then permanently
+      // blocked fresher cloud copies from overwriting (because the local
+      // bogus stamp was always "newer" than the cloud's real creation
+      // timestamp). This branch is what recovers users stuck in that state
+      // without needing to clear browser data.
+      const localIsEmptyShell =
+        !local || (local.tasks.length === 0 && !local.note);
+      const cloudHasContent =
+        cloudDay.tasks.length > 0 || !!cloudDay.note;
+
+      if (localIsEmptyShell && cloudHasContent) {
+        await saveDay(cloudDay);
+        wrote += 1;
+        recovered += 1;
+        continue;
+      }
+
+      // Standard last-write-wins by updatedAt. Cloud wins on equality so a
+      // brand-new pull (both 0) still populates the IDB.
       if (cloudUpdated >= localUpdated) {
         await saveDay(cloudDay);
+        wrote += 1;
+      } else {
+        skipped += 1;
+        skippedDetails.push({
+          id: cloudDay.id,
+          localUpdated,
+          cloudUpdated,
+          localTasks: local?.tasks.length ?? 0,
+          cloudTasks: cloudDay.tasks.length,
+        });
       }
+    }
+    console.log(
+      `[sync] cloud → local: pulled ${cloudDays.length} days, wrote ${wrote}` +
+        (recovered ? ` (${recovered} recovered from empty-shell state)` : "") +
+        `, skipped ${skipped} (local newer)`
+    );
+    if (skipped > 0) {
+      console.log("[sync] skipped days (local was newer):", skippedDetails);
     }
 
     return cloudDays;
