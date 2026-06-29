@@ -3,11 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Day, Settings } from "../types";
+import { Day, Goal, Settings } from "../types";
 
 const DB_NAME = "postit_db";
 // v2: introduced "points_ledger" store
-const DB_VERSION = 2;
+// v3: introduced "goals" store
+const DB_VERSION = 3;
 const POINTS_BALANCE_KEY = "balance";
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -47,6 +48,10 @@ export function initDB(): Promise<IDBDatabase> {
       // v2: single-record ledger keyed by "balance"
       if (!db.objectStoreNames.contains("points_ledger")) {
         db.createObjectStore("points_ledger", { keyPath: "id" });
+      }
+      // v3: long-term goals
+      if (!db.objectStoreNames.contains("goals")) {
+        db.createObjectStore("goals", { keyPath: "id" });
       }
     };
   });
@@ -222,6 +227,54 @@ export async function applyPointsDelta(delta: number): Promise<number> {
       putReq.onerror = () => reject(putReq.error);
     };
     getReq.onerror = () => reject(getReq.error);
+  });
+}
+
+/* -------------------------------------------------------------------------
+ * Goals — long-term targets that completed tasks match by keyword.
+ * ----------------------------------------------------------------------- */
+
+export async function getAllGoals(): Promise<Goal[]> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("goals", "readonly");
+    const store = tx.objectStore("goals");
+    const req = store.getAll();
+    req.onsuccess = () => resolve((req.result as Goal[]) || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function getGoal(id: string): Promise<Goal | null> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("goals", "readonly");
+    const store = tx.objectStore("goals");
+    const req = store.get(id);
+    req.onsuccess = () => resolve((req.result as Goal) || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function saveGoal(goal: Goal): Promise<void> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("goals", "readwrite");
+    const store = tx.objectStore("goals");
+    const req = store.put(goal);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function deleteGoalLocal(id: string): Promise<void> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("goals", "readwrite");
+    const store = tx.objectStore("goals");
+    const req = store.delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
   });
 }
 
