@@ -63,6 +63,24 @@ export default function GoalCard({ goal, allDays, onClick }: GoalCardProps) {
         backgroundImage: TINT_BY_STATUS[status],
       }}
     >
+      {/* Dark-mode contrast overlay.
+          The base pastel + warm/cool tint are designed for light mode. In
+          dark mode they leave the light secondary text (slate-300) sitting
+          on a near-white background, which loses contrast. This semi-
+          transparent slate-900 layer darkens the card just enough to
+          restore legibility while preserving the underlying tint color
+          (hot/cold cue stays visible). Hidden in light mode. */}
+      <span
+        aria-hidden="true"
+        className="hidden dark:block absolute inset-0 pointer-events-none"
+        style={{ backgroundColor: "rgba(15, 23, 42, 0.42)", borderRadius: "inherit" }}
+      />
+
+      {/* Content wrapper — `relative` makes the children share the same
+          positioned layer as the overlay above, and DOM order then puts
+          them visually on top (CSS positioned-element painting rule). */}
+      <div className="relative">
+
       {/* Title row + status icon */}
       <div className="flex items-start justify-between gap-3 mb-1">
         <div className="flex items-center gap-2 min-w-0">
@@ -115,6 +133,8 @@ export default function GoalCard({ goal, allDays, onClick }: GoalCardProps) {
         {status === "hot" && <span className="text-[10px] font-mono text-rose-600 font-bold">on fire</span>}
         {status === "cold" && <span className="text-[10px] font-mono text-blue-600 font-bold">falling behind</span>}
       </div>
+
+      </div>{/* /content wrapper */}
     </button>
   );
 }
