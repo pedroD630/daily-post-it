@@ -52,4 +52,24 @@ export interface Settings {
   theme: ThemeMode;      // app-wide color scheme preference
 }
 
-export type AppView = "main" | "history" | "settings" | "profile" | "shop" | "insights";
+export type AppView = "main" | "history" | "settings" | "profile" | "shop" | "insights" | "goals";
+
+/**
+ * Long-term goal a user is tracking. Each completed task whose text matches
+ * (substring, case- and accent-insensitive) any of `keywords` counts as one
+ * "action" toward this goal.
+ */
+export interface Goal {
+  id: string;                    // crypto.randomUUID()
+  title: string;
+  deadline: string;              // ISO date "YYYY-MM-DD"
+  keywords: string[];            // normalized, lowercase, trimmed, deduped
+  targetFrequency: {
+    amount: number;
+    unit: "day" | "week" | "month";
+  };
+  baseColor: string;             // hex, defaults to neutral gray
+  createdAt: number;
+  archived: boolean;             // soft-delete; archived hides from active list
+  updatedAt?: number;            // last-write-wins for cross-device merge
+}

@@ -4,8 +4,8 @@
  */
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { Day, Task, Settings, AppView, ThemeMode } from "./types";
-import { getSettings, saveSettings, getDay, saveDay, getAllDays, getBalance, getBalanceMeta, applyPointsDelta, setBalance } from "./db";
+import { Day, Task, Settings, AppView, ThemeMode, Goal } from "./types";
+import { getSettings, saveSettings, getDay, saveDay, getAllDays, getBalance, getBalanceMeta, applyPointsDelta, setBalance, getAllGoals, saveGoal, deleteGoalLocal } from "./db";
 import { DEFAULT_SETTINGS } from "./db";
 import Navbar from "./components/Navbar";
 import PostItCard from "./components/PostItCard";
@@ -15,11 +15,12 @@ import ProfileView from "./components/ProfileView";
 import ShopView from "./components/ShopView";
 import InsightsView from "./components/InsightsView";
 import CommandPalette from "./components/CommandPalette";
+import GoalsView from "./components/GoalsView";
 import { getPaletteById } from "./constants/palettes";
 import { pointValue } from "./utils/points";
 import { computeStreak } from "./utils/insights";
 import { startPenaltyScheduler, checkMissedPenalty } from "./utils/penaltyScheduler";
-import { syncPointsBalanceToSupabase, pullPointsBalanceFromSupabase } from "./db/supabase";
+import { syncPointsBalanceToSupabase, pullPointsBalanceFromSupabase, syncGoalToSupabase, deleteGoalFromSupabase, pullAllGoalsFromSupabase } from "./db/supabase";
 import { Reward } from "./constants/rewards";
 import { Trash2, Plus, AlertCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -107,6 +108,9 @@ export default function App() {
 
   // Points & Rewards
   const [pointsBalance, setPointsBalance] = useState<number>(0);
+
+  // Long-term goals
+  const [goals, setGoals] = useState<Goal[]>([]);
 
   // Command palette + cross-view navigation helpers
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -213,6 +217,10 @@ export default function App() {
       // Load current points balance from IndexedDB
       const balance = await getBalance();
       setPointsBalance(balance);
+
+      // Load long-term goals
+      const allGoals = await getAllGoals();
+      setGoals(allGoals);
     } catch (err) {
       console.error("Failed to load initial data from IndexedDB:", err);
     }
@@ -287,6 +295,21 @@ export default function App() {
           }
         } catch (e) {
           console.warn("Points balance merge failed:", e);
+        }
+        try {
+          // Pull goals — same last-write-wins by updatedAt
+          const cloudGoals = await pullAllGoalsFromSupabase(uid);
+          for (const cloudGoal of cloudGoals) {
+            const localGoals = await getAllGoals();
+            const localGoal = localGoals.find((g) => g.id === cloudGoal.id);
+            const localUpdated = localGoal?.updatedAt ?? 0;
+            const cloudUpdated = cloudGoal.updatedAt ?? 0;
+            if (cloudUpdated >= localUpdated) {
+              await saveGoal(cloudGoal);
+            }
+          }
+        } catch (e) {
+          console.warn("Goals pull/merge failed:", e);
         }
       }
       await loadInitialData();
@@ -729,6 +752,41 @@ export default function App() {
     await saveDayWithSync(updatedDay);
   };
 
+  // --- Goals handlers ----------------------------------------------------
+  const handleSaveGoal = async (goal: Goal) => {
+    const stamped: Goal = { ...goal, updatedAt: Date.now() };
+    setGoals((prev) => {
+      const idx = prev.findIndex((g) => g.id === stamped.id);
+      if (idx === -1) return [...prev, stamped];
+      const next = prev.slice();
+      next[idx] = stamped;
+      return next;
+    });
+    await saveGoal(stamped);
+    if (auth.currentUser) {
+      void syncGoalToSupabase(stamped, auth.currentUser.uid);
+    }
+  };
+
+  const handleDeleteGoal = async (id: string) => {
+    setGoals((prev) => prev.filter((g) => g.id !== id));
+    await deleteGoalLocal(id);
+    if (auth.currentUser) {
+      void deleteGoalFromSupabase(id, auth.currentUser.uid);
+    }
+  };
+
+  const handleArchiveGoal = async (id: string, archived: boolean) => {
+    const existing = goals.find((g) => g.id === id);
+    if (!existing) return;
+    const updated: Goal = { ...existing, archived, updatedAt: Date.now() };
+    setGoals((prev) => prev.map((g) => (g.id === id ? updated : g)));
+    await saveGoal(updated);
+    if (auth.currentUser) {
+      void syncGoalToSupabase(updated, auth.currentUser.uid);
+    }
+  };
+
   // Quick mutations triggered from the command palette — persist immediately
   const applyQuickSettings = async (patch: Partial<Settings>) => {
     const next = { ...settings, ...patch };
@@ -1099,6 +1157,16 @@ export default function App() {
                 onRedeem={async (reward: Reward) => {
                   await adjustBalance(-reward.cost);
                 }}
+              />
+            )}
+
+            {currentView === "goals" && (
+              <GoalsView
+                goals={goals}
+                allDays={todayDay ? [...allDaysList.filter((d) => d.id !== todayDay.id), todayDay] : allDaysList}
+                onSaveGoal={handleSaveGoal}
+                onDeleteGoal={handleDeleteGoal}
+                onArchiveGoal={handleArchiveGoal}
               />
             )}
           </motion.div>

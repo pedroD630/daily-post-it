@@ -1,0 +1,120 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Goal card — title, deadline, weekly progress bar, hype/cold icon and
+ * warm/cool tint based on actual-vs-target frequency.
+ */
+
+import React from "react";
+import { Flame, Snowflake, Clock3 } from "lucide-react";
+import { motion } from "motion/react";
+import { Day, Goal } from "../types";
+import {
+  actualWeeklyFrequency,
+  formatDeadline,
+  formatRelative,
+  getGoalStatus,
+  lastActionAt,
+  toWeeklyTarget,
+  GoalStatus,
+} from "../utils/goalFrequency";
+
+interface GoalCardProps {
+  // React 19 + TS in this project doesn't auto-strip `key` from JSX props;
+  // declaring it here keeps strict TypeScript happy at the call sites.
+  key?: React.Key;
+  goal: Goal;
+  allDays: Day[];
+  onClick?: () => void;
+}
+
+const TINT_BY_STATUS: Record<GoalStatus, string> = {
+  hot:     "linear-gradient(135deg, rgba(255,100,50,0.22), rgba(255,100,50,0.04) 60%, transparent)",
+  neutral: "linear-gradient(135deg, transparent, transparent)",
+  cold:    "linear-gradient(135deg, rgba(70,130,200,0.20), rgba(70,130,200,0.04) 60%, transparent)",
+};
+
+export default function GoalCard({ goal, allDays, onClick }: GoalCardProps) {
+  const weeklyTarget = toWeeklyTarget(goal.targetFrequency.amount, goal.targetFrequency.unit);
+  const actual = actualWeeklyFrequency(goal, allDays);
+  const status = getGoalStatus(actual, weeklyTarget);
+  const last = lastActionAt(goal, allDays);
+
+  // Progress bar: clamp display percentage at 100 visually, but keep a tiny
+  // float-up animation so the user sees motion when the bar fills.
+  const fillRatio = weeklyTarget > 0 ? Math.min(actual / weeklyTarget, 1) : 0;
+  const fillPct = Math.round(fillRatio * 100);
+
+  const StatusIcon =
+    status === "hot" ? Flame : status === "cold" ? Snowflake : null;
+  const statusIconColor =
+    status === "hot" ? "#dc2626" : status === "cold" ? "#3b82f6" : "#94a3b8";
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      id={`goal-card-${goal.id}`}
+      aria-label={`Open ${goal.title}`}
+      className="relative w-full text-left rounded-2xl p-4 border border-black/5 dark:border-white/10 shadow-sm hover:shadow-md transition-shadow cursor-pointer overflow-hidden"
+      style={{
+        backgroundColor: goal.baseColor,
+        backgroundImage: TINT_BY_STATUS[status],
+      }}
+    >
+      {/* Title row + status icon */}
+      <div className="flex items-start justify-between gap-3 mb-1">
+        <div className="flex items-center gap-2 min-w-0">
+          {StatusIcon && (
+            <StatusIcon
+              className="w-4 h-4 shrink-0"
+              style={{ color: statusIconColor }}
+              fill={status === "hot" ? "currentColor" : "none"}
+            />
+          )}
+          <span className="font-sans font-bold text-base text-slate-900 dark:text-slate-100 truncate">
+            {goal.title}
+          </span>
+        </div>
+        {goal.archived && (
+          <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-200/80 text-slate-500 shrink-0">
+            archived
+          </span>
+        )}
+      </div>
+
+      {/* Deadline + last action */}
+      <div className="flex items-center justify-between gap-3 mb-3 text-[11px] font-mono text-slate-600 dark:text-slate-300">
+        <span className="truncate">{formatDeadline(goal.deadline)}</span>
+        {last !== null && (
+          <span className="flex items-center gap-1 opacity-75">
+            <Clock3 className="w-3 h-3" />
+            {formatRelative(last)}
+          </span>
+        )}
+      </div>
+
+      {/* Progress bar */}
+      <div className="relative w-full h-2 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: `${fillPct}%` }}
+          transition={{ type: "spring", stiffness: 120, damping: 20 }}
+          className="absolute inset-y-0 left-0 rounded-full"
+          style={{
+            backgroundColor: status === "hot" ? "#dc2626" : status === "cold" ? "#3b82f6" : "#475569",
+          }}
+        />
+      </div>
+
+      <div className="mt-1.5 flex items-baseline justify-between gap-2">
+        <span className="font-mono text-[11px] text-slate-700 dark:text-slate-300 tabular-nums">
+          {actual} / {Math.max(1, Math.round(weeklyTarget))} <span className="opacity-60">per week</span>
+        </span>
+        {status === "hot" && <span className="text-[10px] font-mono text-rose-600 font-bold">on fire</span>}
+        {status === "cold" && <span className="text-[10px] font-mono text-blue-600 font-bold">falling behind</span>}
+      </div>
+    </button>
+  );
+}

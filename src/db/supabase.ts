@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { getAuth } from "firebase/auth";
-import { Day, Task } from "../types";
+import { Day, Goal, Task } from "../types";
 
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || "";
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || "";
@@ -240,6 +240,99 @@ export async function pullAllDaysFromSupabase(userId: string): Promise<Day[]> {
     return finalDays;
   } catch (err) {
     console.error("Failed to pull from Supabase PostgreSQL database:", err);
+    return [];
+  }
+}
+
+/* -------------------------------------------------------------------------
+ * Goals — long-term objectives synced cross-device.
+ * If the `goals` table isn't created yet (PGRST205), every call is a no-op
+ * so the rest of the app keeps working until the migration is run.
+ * ----------------------------------------------------------------------- */
+
+function isMissingGoalsTable(err: any): boolean {
+  if (!err) return false;
+  const code = err.code || "";
+  const msg = (err.message || "").toLowerCase();
+  return code === "PGRST205" || code === "42P01" || msg.includes("goals");
+}
+
+export async function syncGoalToSupabase(goal: Goal, userId: string): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.from("goals").upsert({
+      id: goal.id,
+      user_id: userId,
+      title: goal.title,
+      deadline: goal.deadline,
+      keywords: goal.keywords,
+      target_amount: goal.targetFrequency.amount,
+      target_unit: goal.targetFrequency.unit,
+      base_color: goal.baseColor,
+      created_at: goal.createdAt,
+      archived: goal.archived,
+      updated_at: goal.updatedAt ?? Date.now()
+    }, { onConflict: "id" });
+    if (error) {
+      if (isMissingGoalsTable(error)) {
+        console.warn("Supabase 'goals' table missing — run migration 005_goals.sql.");
+        return false;
+      }
+      throw error;
+    }
+    return true;
+  } catch (err) {
+    console.error("Supabase goals sync error:", err);
+    return false;
+  }
+}
+
+export async function deleteGoalFromSupabase(goalId: string, userId: string): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase
+      .from("goals")
+      .delete()
+      .eq("id", goalId)
+      .eq("user_id", userId);
+    if (error && !isMissingGoalsTable(error)) throw error;
+    return true;
+  } catch (err) {
+    console.error("Supabase goals delete error:", err);
+    return false;
+  }
+}
+
+export async function pullAllGoalsFromSupabase(userId: string): Promise<Goal[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from("goals")
+      .select("*")
+      .eq("user_id", userId);
+    if (error) {
+      if (isMissingGoalsTable(error)) {
+        console.warn("Supabase 'goals' table missing — run migration 005_goals.sql.");
+        return [];
+      }
+      throw error;
+    }
+    return (data || []).map((g: any): Goal => ({
+      id: g.id,
+      title: g.title,
+      deadline: g.deadline,
+      keywords: Array.isArray(g.keywords) ? g.keywords : [],
+      targetFrequency: {
+        amount: Number(g.target_amount ?? 1),
+        unit: (g.target_unit as Goal["targetFrequency"]["unit"]) ?? "week",
+      },
+      baseColor: g.base_color || "#e5e7eb",
+      createdAt: Number(g.created_at || Date.now()),
+      archived: !!g.archived,
+      updatedAt: g.updated_at ? Number(g.updated_at) : 0,
+    }));
+  } catch (err) {
+    console.error("Failed to pull goals from Supabase:", err);
     return [];
   }
 }

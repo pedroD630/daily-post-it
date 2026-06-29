@@ -4,7 +4,7 @@
  */
 
 import React from "react";
-import { History, Plus, Settings, ShoppingBag, Search } from "lucide-react";
+import { History, Plus, Settings, ShoppingBag, Target } from "lucide-react";
 import { AppView } from "../types";
 
 interface NavbarProps {
@@ -38,15 +38,15 @@ export default function Navbar({ currentView, onViewChange, currentUserPhoto, on
           <History className="w-5 h-5" />
         </button>
 
-        {/* Search / Command Palette */}
+        {/* Goals */}
         <button
-          id="nav-btn-search"
-          aria-label="Search everything (Ctrl+K)"
-          title="Search (Ctrl+K)"
-          onClick={() => onOpenPalette?.()}
-          className={itemClass(false)}
+          id="nav-btn-goals"
+          aria-label="Long-term goals"
+          title="Goals"
+          onClick={() => onViewChange("goals")}
+          className={itemClass(currentView === "goals")}
         >
-          <Search className="w-5 h-5" />
+          <Target className="w-5 h-5" />
         </button>
 
         {/* Center: Main View (+) */}
