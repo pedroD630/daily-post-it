@@ -17,7 +17,7 @@ import InsightsView from "./components/InsightsView";
 import CommandPalette from "./components/CommandPalette";
 import GoalsView from "./components/GoalsView";
 import { getPaletteById } from "./constants/palettes";
-import { pointValue } from "./utils/points";
+import { pointValue, computeTaskPoints } from "./utils/points";
 import { computeStreak } from "./utils/insights";
 import { startPenaltyScheduler, checkMissedPenalty } from "./utils/penaltyScheduler";
 import { syncPointsBalanceToSupabase, pullPointsBalanceFromSupabase, syncGoalToSupabase, deleteGoalFromSupabase, pullAllGoalsFromSupabase } from "./db/supabase";
@@ -170,13 +170,25 @@ export default function App() {
     }
   }, [currentView, historyFocusDayId]);
 
+  // Unified list of days: history + today, deduplicated. Memoized once and
+  // reused for streak, derived points and Insights so we don't rebuild it
+  // on every render.
+  const allDays = useMemo(() => (
+    todayDay ? [...allDaysList.filter((d) => d.id !== todayDay.id), todayDay] : allDaysList
+  ), [allDaysList, todayDay]);
+
   // Current productivity streak (recomputed when any day changes)
-  const streak = useMemo(() => {
-    const everything = todayDay
-      ? [...allDaysList.filter((d) => d.id !== todayDay.id), todayDay]
-      : allDaysList;
-    return computeStreak(everything);
-  }, [allDaysList, todayDay]);
+  const streak = useMemo(() => computeStreak(allDays), [allDays]);
+
+  // Points derived from completed tasks — the source of truth for task
+  // contributions. Synced cross-device for free via the days/tasks tables,
+  // so it can never get into the lost-update race that hit the old ledger.
+  const derivedTaskPoints = useMemo(() => computeTaskPoints(allDays), [allDays]);
+
+  // What the user actually sees as their balance: task points (derived)
+  // PLUS the ledger (which only carries penalties and redemptions in v2).
+  // The legacy ledger value gets zeroed out on first boot by the migration.
+  const displayBalance = derivedTaskPoints + pointsBalance;
 
   const loadInitialData = async () => {
     try {
@@ -246,6 +258,48 @@ export default function App() {
       }
     }
     await loadInitialData();
+  };
+
+  // One-shot ledger migration to v2 semantics. In v1, the points_ledger
+  // stored the running grand total (task completions + penalties +
+  // redemptions). In v2, task completions are derived from the days table
+  // and the ledger only carries non-task adjustments. To transition without
+  // permanently double-counting, every device runs this once.
+  //
+  // Cross-device coordination uses the user_points.format_version column:
+  // when cloud is already v1, this device just adopts the cloud value and
+  // marks the local flag. When cloud is v0 (or absent), this device zeros
+  // the ledger out and pushes — that push promotes the cloud row to v1,
+  // so any later device sees v1 and skips re-migrating.
+  const migratePointsLedgerOnce = async (uid: string | null) => {
+    const FLAG = "points_ledger_migrated_v2";
+    if (typeof localStorage === "undefined") return;
+    if (localStorage.getItem(FLAG)) return;
+
+    try {
+      if (uid && navigator.onLine) {
+        const cloud = await pullPointsBalanceFromSupabase(uid);
+        if (cloud && cloud.formatVersion >= 1) {
+          // Another device already migrated; adopt cloud and bail.
+          await setBalance(cloud.balance);
+          setPointsBalance(cloud.balance);
+          localStorage.setItem(FLAG, "1");
+          return;
+        }
+      }
+      // Zero out the ledger: task points come from the derived computation
+      // going forward. The transient effect is that legacy penalty /
+      // redemption history is reset — acceptable given the alternative was
+      // a permanently wrong cross-device balance.
+      await setBalance(0);
+      setPointsBalance(0);
+      if (uid && navigator.onLine) {
+        await syncPointsBalanceToSupabase(uid, 0);
+      }
+      localStorage.setItem(FLAG, "1");
+    } catch (e) {
+      console.error("Points ledger v2 migration failed:", e);
+    }
   };
 
   // Refresh-from-cloud is the single sync entry point used on auth,
@@ -333,6 +387,9 @@ export default function App() {
 
     const unsub = initAuth(async (user) => {
       setCurrentUser(user);
+      // Migration must run BEFORE refreshFromCloud so the zero-out doesn't
+      // race against a cloud pull bringing back a legacy non-zero value.
+      await migratePointsLedgerOnce(user?.uid ?? null);
       if (user) {
         await refreshFromCloudRef.current(user.uid, { force: true });
       } else {
@@ -474,15 +531,12 @@ export default function App() {
 
     let targetTaskId: string | undefined;
     let targetEventId: string | undefined;
-    let pointsDelta = 0;
 
     const updatedTasks = todayDay.tasks.map((task) => {
       if (task.id === taskId) {
         const nextCompleted = !task.completed;
         targetTaskId = task.calendarTaskId;
         targetEventId = task.calendarEventId;
-        // Earn on completion, reverse on un-completion.
-        pointsDelta = (nextCompleted ? 1 : -1) * pointValue(task.style.penColor);
         return {
           ...task,
           completed: nextCompleted,
@@ -505,9 +559,11 @@ export default function App() {
     // where the day shows completed but points were never awarded (or
     // vice-versa).
     await saveDay(updatedDay);
-    if (pointsDelta !== 0) {
-      await adjustBalance(pointsDelta);
-    }
+    // No adjustBalance here in v2: the +N/-N for task completion is derived
+    // from the days table via computeTaskPoints, so it's cross-device safe
+    // without a separate ledger write. The floating "+10" animation in
+    // TaskItem still fires from the click handler — it doesn't depend on
+    // the ledger.
 
     // Now safely fire cloud syncs (background, queue-aware via syncDayToCloud).
     if (auth.currentUser) {
@@ -1081,7 +1137,7 @@ export default function App() {
                     calendarEvents={calendarEvents}
                     paperTexture={settings.paperTexture}
                     textureConfig={getPaletteById(settings.paletteId).texture}
-                    pointsBalance={pointsBalance}
+                    pointsBalance={displayBalance}
                     onNoteChange={handleNoteChange}
                     streak={streak}
                     onOpenInsights={() => setCurrentView("insights")}
@@ -1127,8 +1183,8 @@ export default function App() {
 
             {currentView === "insights" && (
               <InsightsView
-                allDays={todayDay ? [...allDaysList.filter((d) => d.id !== todayDay.id), todayDay] : allDaysList}
-                pointsBalance={pointsBalance}
+                allDays={allDays}
+                pointsBalance={displayBalance}
               />
             )}
 
@@ -1153,7 +1209,7 @@ export default function App() {
 
             {currentView === "shop" && (
               <ShopView
-                balance={pointsBalance}
+                balance={displayBalance}
                 onRedeem={async (reward: Reward) => {
                   await adjustBalance(-reward.cost);
                 }}

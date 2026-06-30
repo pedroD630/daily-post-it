@@ -127,15 +127,26 @@ export async function syncDayToSupabase(day: Day, userId: string): Promise<boole
 /**
  * Upsert the user's current points balance to Supabase. Idempotent —
  * uses the user_id as PK so repeated calls just overwrite the value.
+ *
+ * Always writes format_version = 1, so any device pulling later knows the
+ * row is in the post-migration format (ledger holds non-task adjustments
+ * only). Falls back without that column if migration 006 hasn't been run.
  */
 export async function syncPointsBalanceToSupabase(userId: string, balance: number): Promise<boolean> {
   if (!supabase) return false;
   try {
-    const { error } = await supabase.from("user_points").upsert({
+    const row: Record<string, unknown> = {
       user_id: userId,
       balance,
-      updated_at: Date.now()
-    }, { onConflict: "user_id" });
+      updated_at: Date.now(),
+      format_version: 1,
+    };
+    let { error } = await supabase.from("user_points").upsert(row, { onConflict: "user_id" });
+    if (error && (error.code === "PGRST204" || /column|format_version/i.test(error.message || ""))) {
+      console.warn("Supabase 'format_version' missing — run migration 006_user_points_format.sql. Syncing without it.");
+      delete row.format_version;
+      ({ error } = await supabase.from("user_points").upsert(row, { onConflict: "user_id" }));
+    }
     if (error) throw error;
     return true;
   } catch (err) {
@@ -153,19 +164,29 @@ export async function syncPointsBalanceToSupabase(userId: string, balance: numbe
  */
 export async function pullPointsBalanceFromSupabase(
   userId: string
-): Promise<{ balance: number; updatedAt: number } | null> {
+): Promise<{ balance: number; updatedAt: number; formatVersion: number } | null> {
   if (!supabase) return null;
   try {
-    const { data, error } = await supabase
+    // Try select with format_version; fall back if the column doesn't exist
+    // (migration 006 not yet run).
+    let { data, error } = await supabase
       .from("user_points")
-      .select("balance, updated_at")
+      .select("balance, updated_at, format_version")
       .eq("user_id", userId)
       .maybeSingle();
+    if (error && (error.code === "PGRST204" || /column|format_version/i.test(error.message || ""))) {
+      ({ data, error } = await supabase
+        .from("user_points")
+        .select("balance, updated_at")
+        .eq("user_id", userId)
+        .maybeSingle());
+    }
     if (error) throw error;
     if (!data) return null;
     return {
       balance: Number(data.balance ?? 0),
       updatedAt: Number(data.updated_at ?? 0),
+      formatVersion: Number((data as any).format_version ?? 0),
     };
   } catch (err) {
     console.error("Failed to pull points balance from Supabase:", err);
