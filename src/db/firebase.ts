@@ -85,15 +85,10 @@ onAuthStateChanged(auth, async (user) => {
   }
 });
 
-// Session-scoped guard so a failed silent re-auth doesn't put us in a redirect loop.
-const AUTO_RECONNECT_FLAG = "google_auto_reconnect_attempted";
-
-function clearAutoReconnectGuard() {
-  try { sessionStorage.removeItem(AUTO_RECONNECT_FLAG); } catch { /* sessionStorage may be unavailable */ }
-}
-
-// When the page loads after a signInWithRedirect, pick up the credential here.
-// Runs once at module init; safely no-ops when there was no pending redirect.
+// When the page loads after a signInWithRedirect (used only as fallback when
+// the popup is blocked during an EXPLICIT user click), pick up the credential
+// here. Runs once at module init; safely no-ops when there was no pending
+// redirect.
 if (typeof window !== "undefined") {
   getRedirectResult(auth)
     .then((result) => {
@@ -103,7 +98,7 @@ if (typeof window !== "undefined") {
         cachedAccessToken = credential.accessToken;
         localStorage.setItem("google_access_token", credential.accessToken);
         setCalendarExpired(false);
-        clearAutoReconnectGuard(); // success → allow future auto-reconnects
+        clearCalendarBackoff();
         authListeners.forEach((lis) => lis(result.user, cachedAccessToken));
       }
     })
@@ -113,53 +108,85 @@ if (typeof window !== "undefined") {
 }
 
 /**
- * Silent re-auth attempt for when the Google access token has expired but the
- * Firebase session and the user's Google session are both still valid.
+ * Back-off gate for Google Calendar/Tasks API calls.
  *
- * Uses prompt='none' + login_hint to ask Google to skip the consent UI. If the
- * user is still signed in to Google and has previously granted these scopes,
- * Google returns immediately with a fresh access token via redirect — no UI
- * is shown, the page just briefly navigates and comes back.
+ * When the access token 401s, we set a timestamp in localStorage and skip
+ * ALL calendar/tasks calls until that window passes. This prevents the
+ * app from hammering the API with dead-token requests every time the
+ * user navigates between views (each 401 would previously trigger a
+ * redirect-based reconnect and reload the page — awful UX).
  *
- * Falls through silently if:
- *  - Firebase session is gone (need full interactive login anyway)
- *  - A previous silent attempt already failed this session (avoid loop)
- *  - We're currently in another sign-in flow
- *
- * Caller is responsible for showing the manual reconnect UI as a fallback;
- * setCalendarExpired(true) should already have been called by the API layer.
+ * The user's Firebase identity is NOT affected: they stay logged in, the
+ * app keeps working end-to-end. Only the optional Calendar sync is paused
+ * until they explicitly click "Reconnect Calendar".
  */
-export async function tryAutoReconnect(): Promise<void> {
-  if (typeof window === "undefined") return;
-  if (isSigningIn) return;
-  if (!auth.currentUser) return;
+const CALENDAR_BACKOFF_KEY = "google_calendar_backoff_until";
+const CALENDAR_BACKOFF_MS = 10 * 60 * 1000; // 10 minutes
 
+export function isCalendarInBackoff(): boolean {
+  if (typeof localStorage === "undefined") return false;
+  const until = Number(localStorage.getItem(CALENDAR_BACKOFF_KEY) || 0);
+  return until > Date.now();
+}
+
+export function markCalendarBackoff() {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(CALENDAR_BACKOFF_KEY, String(Date.now() + CALENDAR_BACKOFF_MS));
+}
+
+export function clearCalendarBackoff() {
+  if (typeof localStorage === "undefined") return;
+  localStorage.removeItem(CALENDAR_BACKOFF_KEY);
+}
+
+/**
+ * Explicit user-triggered Calendar reconnect.
+ *
+ * ONLY called from a real click handler (Reconnect button). Uses popup
+ * because popup + user gesture is reliable — never causes an
+ * uncontrolled reload. If the popup is blocked despite the click
+ * (edge case: aggressive popup blockers), we fall back to redirect,
+ * but again: only after an explicit user click. The auto-reconnect-on-
+ * every-401 behavior that was reloading the app is GONE.
+ *
+ * Returns true on success. On failure, throws so the caller can surface
+ * a helpful message ("Popup blocked — click Reconnect again").
+ */
+export async function reconnectGoogleCalendar(): Promise<boolean> {
+  if (!auth.currentUser) return false;
+
+  const silentProvider = new GoogleAuthProvider();
+  silentProvider.addScope("https://www.googleapis.com/auth/calendar.events");
+  silentProvider.addScope("https://www.googleapis.com/auth/calendar.readonly");
+  silentProvider.addScope("https://www.googleapis.com/auth/tasks");
+  silentProvider.setCustomParameters({
+    prompt: "none",
+    login_hint: auth.currentUser.email || "",
+  });
+
+  isSigningIn = true;
   try {
-    if (sessionStorage.getItem(AUTO_RECONNECT_FLAG) === "true") return;
-    sessionStorage.setItem(AUTO_RECONNECT_FLAG, "true");
-  } catch {
-    // If sessionStorage is unavailable, skip auto-reconnect to be safe.
-    return;
-  }
-
-  try {
-    const silentProvider = new GoogleAuthProvider();
-    silentProvider.addScope("https://www.googleapis.com/auth/calendar.events");
-    silentProvider.addScope("https://www.googleapis.com/auth/calendar.readonly");
-    silentProvider.addScope("https://www.googleapis.com/auth/tasks");
-    silentProvider.setCustomParameters({
-      prompt: "none",
-      login_hint: auth.currentUser.email || ""
-    });
-
-    isSigningIn = true;
-    // Browser will navigate away. The result is captured by getRedirectResult
-    // on the next page load. If the user has no active Google session, Google
-    // redirects back with an error in the URL hash; getRedirectResult will
-    // reject and we leave the UI in calendar-expired state for manual action.
-    await signInWithRedirect(auth, silentProvider);
-  } catch (err) {
-    console.warn("Auto-reconnect to Google failed; user will need to click reconnect:", err);
+    const result = await signInWithPopup(auth, silentProvider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (credential?.accessToken) {
+      cachedAccessToken = credential.accessToken;
+      localStorage.setItem("google_access_token", credential.accessToken);
+      setCalendarExpired(false);
+      clearCalendarBackoff();
+      authListeners.forEach((lis) => lis(result.user, cachedAccessToken));
+      return true;
+    }
+    return false;
+  } catch (err: any) {
+    // If the popup was blocked, fall back to redirect. Redirect DOES
+    // reload the page, but only after an explicit user click — matches
+    // the mental model of "I asked to reconnect".
+    if (err?.code === "auth/popup-blocked" || err?.code === "auth/cancelled-popup-request") {
+      await signInWithRedirect(auth, silentProvider);
+      return false;
+    }
+    throw err;
+  } finally {
     isSigningIn = false;
   }
 }
@@ -189,8 +216,7 @@ const POPUP_FALLBACK_CODES = new Set([
 
 export const googleSignIn = (): Promise<void> => {
   isSigningIn = true;
-  // Allow a future auto-reconnect to run again now that the user is taking action.
-  clearAutoReconnectGuard();
+  clearCalendarBackoff();
   return signInWithPopup(auth, provider)
     .then((result) => {
       const credential = GoogleAuthProvider.credentialFromResult(result);
@@ -220,6 +246,7 @@ export const googleSignIn = (): Promise<void> => {
 export const logout = async () => {
   await signOut(auth);
   cachedAccessToken = null;
+  clearCalendarBackoff();
   if (typeof window !== "undefined") {
     localStorage.removeItem("google_access_token");
   }
@@ -441,6 +468,9 @@ export interface CalendarEvent {
 export async function fetchGoogleCalendarEvents(): Promise<CalendarEvent[]> {
   const token = await getAccessToken();
   if (!token || !cachedCalendarSyncEnabled) return [];
+  // Respect the back-off window so we don't re-hammer the API every time
+  // the user navigates a view while the token is dead.
+  if (isCalendarInBackoff()) return [];
 
   try {
     const now = new Date();
@@ -458,9 +488,13 @@ export async function fetchGoogleCalendarEvents(): Promise<CalendarEvent[]> {
 
     if (!res.ok) {
       if (res.status === 401) {
-        console.warn("Google Calendar request returned 401, token might be expired. Attempting silent reconnect.");
+        // Token expired. Mark the calendar as needing a manual reconnect
+        // and start the back-off window. NO redirect, NO reload — the
+        // core app keeps working; only the optional Calendar feature is
+        // paused until the user clicks Reconnect.
+        console.warn("Google Calendar 401 — pausing calendar sync until user reconnects.");
         setCalendarExpired(true);
-        void tryAutoReconnect();
+        markCalendarBackoff();
       }
       return [];
     }

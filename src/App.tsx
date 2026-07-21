@@ -29,6 +29,7 @@ import {
   auth,
   initAuth,
   googleSignIn,
+  reconnectGoogleCalendar,
   syncDayToCloud,
   pullAllDaysFromCloud,
   fetchGoogleCalendarEvents,
@@ -459,22 +460,30 @@ export default function App() {
     };
   }, []);
 
-  // Fetch upcoming calendar schedule when connected
+  // Fetch upcoming Google Calendar events at boot and every 15 minutes while
+  // the tab is open. NOT re-triggered by view changes or edits — those used
+  // to fire a fresh request on every re-render, which turned a single 401
+  // into a firehose of failing calls (and, previously, of reconnect redirects
+  // that reloaded the whole app). The 15-minute cadence is fine because
+  // "today's events" doesn't change second-by-second.
   useEffect(() => {
-    let active = true;
-    if (currentUser && isCalendarConnected()) {
-      fetchGoogleCalendarEvents()
-        .then((events) => {
-          if (active) setCalendarEvents(events);
-        })
-        .catch((err) => console.error("Could not sync Google Calendar events:", err));
-    } else {
+    if (!currentUser || !isCalendarConnected() || calendarExpired) {
       setCalendarEvents([]);
+      return;
     }
+    let active = true;
+    const run = () => {
+      fetchGoogleCalendarEvents()
+        .then((events) => { if (active) setCalendarEvents(events); })
+        .catch((err) => console.error("Could not sync Google Calendar events:", err));
+    };
+    run();
+    const id = window.setInterval(run, 15 * 60 * 1000);
     return () => {
       active = false;
+      window.clearInterval(id);
     };
-  }, [currentUser, currentView, todayDay, calendarExpired]);
+  }, [currentUser, calendarExpired]);
 
   // Sync back live visual post-it color to applet default background
   useEffect(() => {
@@ -1060,21 +1069,29 @@ export default function App() {
         }}
       />
 
-      {/* Expiry Warning Alert Banner */}
-      {calendarExpired && (
-        <div 
+      {/* Calendar reconnect banner. Shown only when the last Google API call
+          returned 401. The user's Firebase identity is intact — this only
+          asks them to top up the short-lived Calendar access token. Uses
+          the popup-first flow (no full-page reload). */}
+      {calendarExpired && currentUser && (
+        <div
           id="calendar-expired-warn-banner"
           className="mx-auto my-3 w-full max-w-md bg-amber-50 border border-amber-200/80 text-amber-900 text-xs py-2 px-3.5 rounded-xl flex items-center justify-between gap-3 shadow-sm z-50 select-none animate-fadeIn"
         >
           <div className="flex items-center gap-2">
             <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-            <span className="leading-tight font-medium">Your calendar connection expired. Login again to rebuild your tasks.</span>
+            <span className="leading-tight font-medium">
+              Google Calendar sync paused. Reconnect to resume — the rest of the app keeps working.
+            </span>
           </div>
           <button
             onClick={() => {
-              googleSignIn()
-                .then(() => setCalendarExpired(false))
-                .catch(err => console.error("Error signing in from expired banner popup:", err));
+              reconnectGoogleCalendar()
+                .then((ok) => { if (ok) setCalendarExpired(false); })
+                .catch((err) => {
+                  console.error("Reconnect popup failed:", err);
+                  window.alert("Popup blocked. Please allow popups or click Reconnect again.");
+                });
             }}
             className="bg-amber-600 hover:bg-amber-700 text-white font-mono text-[9px] uppercase font-bold py-1 px-2.5 rounded shadow-sm transition-colors shrink-0"
           >
