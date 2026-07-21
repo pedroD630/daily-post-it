@@ -1,8 +1,17 @@
-import { getAccessToken, setCalendarExpired, tryAutoReconnect } from "./firebase";
+import {
+  getAccessToken,
+  setCalendarExpired,
+  isCalendarInBackoff,
+  markCalendarBackoff,
+} from "./firebase";
 
 async function googleApiFetch(url: string, options: RequestInit = {}): Promise<Response | null> {
   const token = await getAccessToken();
   if (!token) return null;
+  // While the calendar is in back-off (recent 401), don't even try — this
+  // stops the loop where each rapid re-render fired a fresh failing
+  // request that used to trigger a reconnect redirect + full-page reload.
+  if (isCalendarInBackoff()) return null;
 
   const headers = {
     Authorization: `Bearer ${token}`,
@@ -14,13 +23,12 @@ async function googleApiFetch(url: string, options: RequestInit = {}): Promise<R
   try {
     const res = await fetch(url, { ...options, headers });
     if (res.status === 401) {
-      console.warn("Google API returned 401. Setting calendar session as expired and attempting silent reconnect.");
+      // Token expired. Surface the reconnect banner and put the API in
+      // back-off. The user reconnects on demand via a click — we NEVER
+      // auto-redirect (which would reload the whole app).
+      console.warn("Google API 401 — pausing calendar sync until user reconnects.");
       setCalendarExpired(true);
-      // Fire-and-forget: if the user still has an active Google session, this
-      // triggers a same-origin redirect that returns in ~1-2s with a fresh
-      // access token (no consent UI). If it fails, the calendarExpired UI
-      // remains for the user to act on manually.
-      void tryAutoReconnect();
+      markCalendarBackoff();
       return null;
     }
     return res;
