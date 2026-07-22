@@ -29,6 +29,60 @@ export interface AIProvider {
 }
 
 /**
+ * Diagnostic snapshot of which providers are configured / available. Used
+ * by the UI when NO provider works, so the user (or the owner deploying
+ * the app) can see exactly what's missing instead of guessing.
+ */
+export interface ProviderStatus {
+  chromeBuiltin: { available: boolean; reason: string };
+  proxy: { enabled: boolean; loggedIn: boolean; reason: string };
+  byok: { hasKey: boolean };
+}
+
+export async function probeProviders(geminiApiKey?: string): Promise<ProviderStatus> {
+  // Chrome Built-in
+  let chromeBuiltin = { available: false, reason: "Chrome/Edge 138+ desktop only" };
+  try {
+    const LM: any = (globalThis as any).LanguageModel;
+    if (LM?.availability) {
+      const s: string = await LM.availability();
+      if (s === "available") chromeBuiltin = { available: true, reason: "ready" };
+      else if (s === "downloadable" || s === "downloading") chromeBuiltin = { available: true, reason: `model ${s}` };
+      else chromeBuiltin = { available: false, reason: `LanguageModel.availability=${s}` };
+    } else if ((globalThis as any).ai?.languageModel?.capabilities) {
+      const caps = await (globalThis as any).ai.languageModel.capabilities();
+      chromeBuiltin = caps.available === "readily"
+        ? { available: true, reason: "ready (legacy API)" }
+        : { available: false, reason: `capabilities.available=${caps.available}` };
+    }
+  } catch (err) {
+    chromeBuiltin = { available: false, reason: `probe error: ${String(err).slice(0, 80)}` };
+  }
+
+  // Proxy
+  const env = (import.meta as any).env;
+  const proxyFlag = env?.VITE_AI_PROXY_ENABLED === "true";
+  let proxy = { enabled: proxyFlag, loggedIn: false, reason: "" };
+  if (!proxyFlag) {
+    proxy.reason = "VITE_AI_PROXY_ENABLED not set to 'true' in Vercel env";
+  } else {
+    try {
+      const { getAuth } = await import("firebase/auth");
+      const user = getAuth().currentUser;
+      proxy.loggedIn = !!user;
+      proxy.reason = user ? "ready" : "not signed in to Google";
+    } catch (err) {
+      proxy.reason = `probe error: ${String(err).slice(0, 80)}`;
+    }
+  }
+
+  // BYOK
+  const byok = { hasKey: !!(geminiApiKey && geminiApiKey.trim()) };
+
+  return { chromeBuiltin, proxy, byok };
+}
+
+/**
  * Try providers in preference order and return the first that works:
  *   1. Chrome Built-in AI (on-device Gemini Nano) — private, offline, zero
  *      round-trip. Desktop Chrome/Edge only.
