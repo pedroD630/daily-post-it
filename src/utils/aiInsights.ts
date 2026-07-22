@@ -139,13 +139,21 @@ async function tryProxyProvider(): Promise<AIProvider | null> {
 
 /** ----------------------------------------------------------------------- */
 
+// Cheapest current stable models, tried in order. gemini-2.5-flash-lite is
+// the lowest-cost flash-family model with generateContent support at time
+// of writing. Falls through the chain on 404 (model retired/renamed) so a
+// future Google deprecation doesn't silently break the BYOK path again.
+const GEMINI_MODEL_CHAIN = [
+  "gemini-2.5-flash-lite",
+  "gemini-2.0-flash-lite-001",
+  "gemini-flash-lite-latest",
+];
+
 function makeGeminiProvider(apiKey: string): AIProvider {
   return {
     kind: "gemini-byok",
     label: "Gemini (sua chave)",
     chat: async (system: string, history: ChatMessage[]) => {
-      const model = "gemini-2.0-flash";
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
       const body = {
         contents: history.slice(-24).map((m) => ({
           role: m.role === "model" ? "model" : "user",
@@ -158,26 +166,39 @@ function makeGeminiProvider(apiKey: string): AIProvider {
           maxOutputTokens: 500,
         },
       };
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "");
-        if (res.status === 400) throw new Error("Chave da API inválida ou requisição malformada.");
-        if (res.status === 401 || res.status === 403) throw new Error("Chave da API não autorizada. Verifique em Google AI Studio.");
-        if (res.status === 429) throw new Error("Limite de requisições atingido no free tier. Tente em alguns segundos.");
-        throw new Error(`Gemini API ${res.status}: ${errText.slice(0, 200)}`);
+
+      let lastStatus = 0;
+      let lastErrText = "";
+
+      for (const model of GEMINI_MODEL_CHAIN) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          const text = data.candidates?.[0]?.content?.parts?.map((p: any) => p?.text).filter(Boolean).join("\n");
+          if (!text) {
+            const reason = data.candidates?.[0]?.finishReason;
+            if (reason && reason !== "STOP") throw new Error(`Gemini bloqueou a resposta (${reason}).`);
+            throw new Error("Gemini retornou resposta vazia.");
+          }
+          return String(text).trim();
+        }
+
+        lastStatus = res.status;
+        lastErrText = await res.text().catch(() => "");
+        if (res.status !== 404) break; // only chain-retry on model-not-found
       }
-      const data = await res.json();
-      const text = data.candidates?.[0]?.content?.parts?.map((p: any) => p?.text).filter(Boolean).join("\n");
-      if (!text) {
-        const reason = data.candidates?.[0]?.finishReason;
-        if (reason && reason !== "STOP") throw new Error(`Gemini bloqueou a resposta (${reason}).`);
-        throw new Error("Gemini retornou resposta vazia.");
-      }
-      return String(text).trim();
+
+      if (lastStatus === 400) throw new Error("Chave da API inválida ou requisição malformada.");
+      if (lastStatus === 401 || lastStatus === 403) throw new Error("Chave da API não autorizada. Verifique em Google AI Studio.");
+      if (lastStatus === 429) throw new Error("Limite de requisições atingido no free tier. Tente em alguns segundos.");
+      if (lastStatus === 404) throw new Error("Nenhum modelo Gemini disponível para esta chave no momento.");
+      throw new Error(`Gemini API ${lastStatus}: ${lastErrText.slice(0, 200)}`);
     },
   };
 }

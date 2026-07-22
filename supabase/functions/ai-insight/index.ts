@@ -96,11 +96,22 @@ Deno.serve(async (req) => {
     parts: [{ text: String(m.text ?? "").slice(0, 4000) }],
   }));
 
-  const model = ["gemini-2.0-flash", "gemini-1.5-flash-8b", "gemini-1.5-flash"].includes(body.model ?? "")
-    ? body.model!
-    : "gemini-2.0-flash";
+  // gemini-2.5-flash-lite is the cheapest current stable model: lowest
+  // token cost among the flash family, still supports generateContent with
+  // a 1M input / 65k output context. Fallback chain covers the case where
+  // Google deprecates one (as happened with gemini-2.0-flash returning 404
+  // "no longer available" mid-way through this app's life).
+  const ALLOWED_MODELS = [
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash-lite-001",
+    "gemini-flash-lite-latest",
+  ];
+  const requestedModel = ALLOWED_MODELS.includes(body.model ?? "") ? body.model! : ALLOWED_MODELS[0];
+  // Try the requested model first, then fall through the rest of the chain
+  // ONLY on 404 (model retired/renamed) — other errors (429, 400) surface
+  // immediately since retrying with a different model won't help.
+  const modelsToTry = [requestedModel, ...ALLOWED_MODELS.filter((m) => m !== requestedModel)];
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
   const geminiBody = {
     contents: trimmedMessages,
     systemInstruction: { role: "system", parts: [{ text: system }] },
@@ -119,41 +130,57 @@ Deno.serve(async (req) => {
   };
 
   try {
-    const geminiRes = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(geminiBody),
-    });
+    let lastErrText = "";
+    let lastStatus = 502;
 
-    if (!geminiRes.ok) {
-      const errText = await geminiRes.text().catch(() => "");
-      const message =
-        geminiRes.status === 429
-          ? "IA temporariamente indisponível (limite de requisições). Tente novamente em instantes."
-          : geminiRes.status === 400
-          ? "A IA rejeitou a requisição."
-          : "Erro no backend de IA.";
-      return new Response(
-        JSON.stringify({ error: message, upstream: errText.slice(0, 300) }),
-        { status: 502, headers: { ...corsHeaders(origin), "Content-Type": "application/json" } },
-      );
+    for (const model of modelsToTry) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const geminiRes = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(geminiBody),
+      });
+
+      if (geminiRes.ok) {
+        const data = await geminiRes.json();
+        const parts: any[] = data?.candidates?.[0]?.content?.parts ?? [];
+        const text = parts.map((p) => p?.text).filter(Boolean).join("\n").trim();
+
+        if (!text) {
+          const reason = data?.candidates?.[0]?.finishReason ?? "UNKNOWN";
+          return new Response(
+            JSON.stringify({ error: `IA não retornou texto (finishReason=${reason})` }),
+            { status: 502, headers: { ...corsHeaders(origin), "Content-Type": "application/json" } },
+          );
+        }
+
+        return new Response(JSON.stringify({ text, model }), {
+          headers: { ...corsHeaders(origin), "Content-Type": "application/json" },
+        });
+      }
+
+      lastErrText = await geminiRes.text().catch(() => "");
+      lastStatus = geminiRes.status;
+
+      // Only keep trying the fallback chain on 404 (model retired/renamed).
+      // Any other status (429 rate limit, 400 bad request, 500 upstream)
+      // means retrying with a different model won't fix it.
+      if (geminiRes.status !== 404) break;
+      console.warn(`Model ${model} returned 404, trying next in chain...`);
     }
 
-    const data = await geminiRes.json();
-    const parts: any[] = data?.candidates?.[0]?.content?.parts ?? [];
-    const text = parts.map((p) => p?.text).filter(Boolean).join("\n").trim();
-
-    if (!text) {
-      const reason = data?.candidates?.[0]?.finishReason ?? "UNKNOWN";
-      return new Response(
-        JSON.stringify({ error: `IA não retornou texto (finishReason=${reason})` }),
-        { status: 502, headers: { ...corsHeaders(origin), "Content-Type": "application/json" } },
-      );
-    }
-
-    return new Response(JSON.stringify({ text }), {
-      headers: { ...corsHeaders(origin), "Content-Type": "application/json" },
-    });
+    const message =
+      lastStatus === 429
+        ? "IA temporariamente indisponível (limite de requisições). Tente novamente em instantes."
+        : lastStatus === 400
+        ? "A IA rejeitou a requisição."
+        : lastStatus === 404
+        ? "Nenhum modelo de IA disponível no momento (todos retornaram 404)."
+        : "Erro no backend de IA.";
+    return new Response(
+      JSON.stringify({ error: message, upstream: lastErrText.slice(0, 300) }),
+      { status: 502, headers: { ...corsHeaders(origin), "Content-Type": "application/json" } },
+    );
   } catch (err) {
     return new Response(
       JSON.stringify({ error: "Erro de rede ao chamar o Gemini", details: String(err).slice(0, 200) }),
