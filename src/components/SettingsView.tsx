@@ -7,7 +7,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { Settings as SettingsType, AppView, ThemeMode } from "../types";
 import { PEN_PRESETS } from "../constants/colors";
 import { PALETTES, getPaletteById } from "../constants/palettes";
-import { Save, AlertCircle, Settings as SettingsIcon, SunMedium, Moon, MonitorSmartphone } from "lucide-react";
+import { Save, AlertCircle, Settings as SettingsIcon, SunMedium, Moon, MonitorSmartphone, Sparkles, Eye, EyeOff, ChevronDown, ChevronUp, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { validateGeminiKey } from "../utils/aiInsights";
 
 interface SettingsViewProps {
   initialSettings: SettingsType;
@@ -86,6 +87,13 @@ export default function SettingsView({
     initialSettings.paperTexture === undefined ? true : initialSettings.paperTexture
   );
   const [selectedTheme, setSelectedTheme] = useState<ThemeMode>(initialSettings.theme || "system");
+
+  // BYOK for AI Insights (fallback on browsers without Chrome Built-in AI)
+  const [aiSectionOpen, setAiSectionOpen] = useState(!!initialSettings.geminiApiKey);
+  const [geminiKey, setGeminiKey] = useState(initialSettings.geminiApiKey || "");
+  const [showKey, setShowKey] = useState(false);
+  const [keyTestState, setKeyTestState] = useState<"idle" | "testing" | "ok" | "fail">("idle");
+  const [keyTestMsg, setKeyTestMsg] = useState("");
 
   const activePalette = getPaletteById(selectedPaletteId);
 
@@ -226,7 +234,29 @@ export default function SettingsView({
       paletteId: selectedPaletteId,
       paperTexture: paperTextureEnabled,
       theme: selectedTheme,
+      geminiApiKey: geminiKey.trim() || undefined,
     });
+  };
+
+  // Test the pasted Gemini key with a tiny ping — one-shot, doesn't block save.
+  const handleTestKey = async () => {
+    const trimmed = geminiKey.trim();
+    if (!trimmed) return;
+    setKeyTestState("testing");
+    setKeyTestMsg("");
+    try {
+      const ok = await validateGeminiKey(trimmed);
+      if (ok) {
+        setKeyTestState("ok");
+        setKeyTestMsg("Chave OK — pronto pra usar!");
+      } else {
+        setKeyTestState("fail");
+        setKeyTestMsg("Chave inválida ou sem quota. Confirme em Google AI Studio.");
+      }
+    } catch (err: any) {
+      setKeyTestState("fail");
+      setKeyTestMsg(String(err?.message || err));
+    }
   };
 
   const THEME_OPTIONS: { id: ThemeMode; label: string; icon: React.ReactNode }[] = [
@@ -496,6 +526,93 @@ export default function SettingsView({
               }`}
             />
           </button>
+        </div>
+
+        {/* Section 5: AI Insights (advanced / opt-in). Chrome Built-in AI runs
+            without a key; other browsers can paste a free Gemini API key. */}
+        <div className="flex flex-col gap-2" id="settings-section-ai">
+          <button
+            type="button"
+            onClick={() => setAiSectionOpen((v) => !v)}
+            className="flex items-center justify-between gap-3 group cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-indigo-500" />
+              <label className="font-sans text-xs font-bold uppercase tracking-wider text-slate-500 cursor-pointer">
+                Advanced: AI Insights
+              </label>
+            </div>
+            {aiSectionOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+          </button>
+
+          {aiSectionOpen && (
+            <div className="flex flex-col gap-2.5 mt-1 p-3 rounded-2xl bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/50">
+              <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                Chrome 138+ e Edge têm IA nativa (Gemini Nano) — nada precisa ser feito, roda no seu dispositivo.
+                Em outros navegadores, cole sua chave grátis da Gemini API abaixo. A chave fica só neste dispositivo.
+              </p>
+
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <input
+                    id="settings-input-gemini-key"
+                    type={showKey ? "text" : "password"}
+                    value={geminiKey}
+                    onChange={(e) => {
+                      setGeminiKey(e.target.value);
+                      setKeyTestState("idle");
+                      setKeyTestMsg("");
+                    }}
+                    placeholder="AIza... (cole sua Gemini API key)"
+                    className="w-full font-mono text-xs px-3 py-2 pr-8 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-400 text-slate-800 dark:text-slate-100"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  {geminiKey && (
+                    <button
+                      type="button"
+                      onClick={() => setShowKey((v) => !v)}
+                      aria-label={showKey ? "Hide key" : "Show key"}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      {showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleTestKey}
+                  disabled={!geminiKey.trim() || keyTestState === "testing"}
+                  className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white text-[11px] font-semibold cursor-pointer disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+                >
+                  {keyTestState === "testing" ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                  Testar
+                </button>
+              </div>
+
+              {keyTestState === "ok" && (
+                <div className="flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  {keyTestMsg}
+                </div>
+              )}
+              {keyTestState === "fail" && (
+                <div className="flex items-start gap-1.5 text-[11px] text-red-600 dark:text-red-400 font-medium">
+                  <XCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>{keyTestMsg}</span>
+                </div>
+              )}
+
+              <a
+                href="https://aistudio.google.com/apikey"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline w-fit"
+              >
+                Obter chave grátis no Google AI Studio →
+              </a>
+            </div>
+          )}
         </div>
 
         {/* Action Form Footer (Save & cancel buttons) */}

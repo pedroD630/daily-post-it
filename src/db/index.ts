@@ -17,7 +17,8 @@ export const DEFAULT_SETTINGS: Settings = {
   fontFamily: "sans-serif",
   paletteId: "pastel",
   paperTexture: true,
-  theme: "system"
+  theme: "system",
+  geminiApiKey: undefined
 };
 
 let dbPromise: Promise<IDBDatabase> | null = null;

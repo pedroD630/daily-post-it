@@ -50,6 +50,7 @@ export interface Settings {
   paletteId: string;     // ID of the active color palette (see constants/palettes.ts)
   paperTexture: boolean; // whether to render the realistic shader-based paper texture
   theme: ThemeMode;      // app-wide color scheme preference
+  geminiApiKey?: string; // BYOK for AI Insights (fallback when Chrome Built-in AI not available)
 }
 
 export type AppView = "main" | "history" | "settings" | "profile" | "shop" | "insights" | "goals";

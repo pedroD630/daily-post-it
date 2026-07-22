@@ -1202,6 +1202,8 @@ export default function App() {
               <InsightsView
                 allDays={allDays}
                 pointsBalance={displayBalance}
+                goals={goals}
+                geminiApiKey={settings.geminiApiKey}
               />
             )}
 
