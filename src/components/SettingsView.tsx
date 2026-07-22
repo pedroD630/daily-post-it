@@ -539,7 +539,7 @@ export default function SettingsView({
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-indigo-500" />
               <label className="font-sans text-xs font-bold uppercase tracking-wider text-slate-500 cursor-pointer">
-                Advanced: AI Insights
+                Advanced: sua própria chave de IA
               </label>
             </div>
             {aiSectionOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
@@ -548,8 +548,8 @@ export default function SettingsView({
           {aiSectionOpen && (
             <div className="flex flex-col gap-2.5 mt-1 p-3 rounded-2xl bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/50">
               <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
-                Chrome 138+ e Edge têm IA nativa (Gemini Nano) — nada precisa ser feito, roda no seu dispositivo.
-                Em outros navegadores, cole sua chave grátis da Gemini API abaixo. A chave fica só neste dispositivo.
+                O Coach IA já funciona automaticamente, sem configurar nada. Esta opção é só pra quem
+                prefere usar a própria chave da Gemini API em vez da nossa. A chave fica só neste dispositivo.
               </p>
 
               <div className="flex items-center gap-2">

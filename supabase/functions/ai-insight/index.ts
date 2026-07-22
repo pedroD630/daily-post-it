@@ -6,11 +6,17 @@
  * (`verify_jwt: true`) rejects unauthenticated callers BEFORE this function
  * runs, so this file only needs to worry about the happy path.
  *
+ * Supports multi-turn chat: the client sends the full message history
+ * (role: "user" | "model") plus a system prompt built from the user's
+ * derived stats (streak, goals, activity summary). This is the single
+ * conversation used by the Insights → AI Coach chat panel.
+ *
  * Deployment steps (one-time):
  *   1. supabase secrets set GEMINI_API_KEY=your_key_from_ai_studio
+ *      (requires billing enabled on the Google Cloud project — the
+ *      Gemini free tier alone returns 429 once its daily quota is hit)
  *   2. supabase functions deploy ai-insight
- *   3. On Vercel (client-side flag): set VITE_AI_PROXY_ENABLED=true
- *      and VITE_SUPABASE_FUNCTIONS_URL=https://<project-ref>.supabase.co/functions/v1
+ *   3. On Vercel: set VITE_AI_PROXY_ENABLED=true
  *   4. Redeploy the frontend.
  *
  * License: SPDX-License-Identifier: Apache-2.0
@@ -36,6 +42,11 @@ function corsHeaders(origin: string | null): HeadersInit {
   };
 }
 
+interface ChatTurn {
+  role: "user" | "model";
+  text: string;
+}
+
 Deno.serve(async (req) => {
   const origin = req.headers.get("origin");
 
@@ -58,7 +69,7 @@ Deno.serve(async (req) => {
     );
   }
 
-  let body: { system?: string; user?: string; model?: string };
+  let body: { system?: string; messages?: ChatTurn[]; model?: string };
   try {
     body = await req.json();
   } catch {
@@ -68,26 +79,35 @@ Deno.serve(async (req) => {
     });
   }
 
-  const system = String(body.system ?? "").slice(0, 4000);
-  const user = String(body.user ?? "").slice(0, 8000);
-  if (!system || !user) {
-    return new Response(JSON.stringify({ error: "Missing 'system' or 'user' prompt" }), {
+  const system = String(body.system ?? "").slice(0, 6000);
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  if (!system || messages.length === 0) {
+    return new Response(JSON.stringify({ error: "Missing 'system' or 'messages'" }), {
       status: 400,
       headers: { ...corsHeaders(origin), "Content-Type": "application/json" },
     });
   }
+
+  // Cap conversation length + per-message size to keep cost predictable.
+  // 24 turns (~12 back-and-forths) is plenty for a coaching chat and
+  // keeps the context window small, which keeps latency and cost down.
+  const trimmedMessages = messages.slice(-24).map((m) => ({
+    role: m.role === "model" ? "model" : "user",
+    parts: [{ text: String(m.text ?? "").slice(0, 4000) }],
+  }));
+
   const model = ["gemini-2.0-flash", "gemini-1.5-flash-8b", "gemini-1.5-flash"].includes(body.model ?? "")
     ? body.model!
     : "gemini-2.0-flash";
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
   const geminiBody = {
-    contents: [{ role: "user", parts: [{ text: user }] }],
+    contents: trimmedMessages,
     systemInstruction: { role: "system", parts: [{ text: system }] },
     generationConfig: {
       temperature: 0.7,
       topP: 0.9,
-      maxOutputTokens: 400,
+      maxOutputTokens: 500,
     },
     // Safety: block only high-confidence unsafe content to avoid false positives.
     safetySettings: [
@@ -109,10 +129,10 @@ Deno.serve(async (req) => {
       const errText = await geminiRes.text().catch(() => "");
       const message =
         geminiRes.status === 429
-          ? "AI temporarily unavailable (rate limit). Try again in a moment."
+          ? "IA temporariamente indisponível (limite de requisições). Tente novamente em instantes."
           : geminiRes.status === 400
-          ? "AI rejected the request."
-          : "AI backend error.";
+          ? "A IA rejeitou a requisição."
+          : "Erro no backend de IA.";
       return new Response(
         JSON.stringify({ error: message, upstream: errText.slice(0, 300) }),
         { status: 502, headers: { ...corsHeaders(origin), "Content-Type": "application/json" } },
@@ -126,7 +146,7 @@ Deno.serve(async (req) => {
     if (!text) {
       const reason = data?.candidates?.[0]?.finishReason ?? "UNKNOWN";
       return new Response(
-        JSON.stringify({ error: `AI returned no text (finishReason=${reason})` }),
+        JSON.stringify({ error: `IA não retornou texto (finishReason=${reason})` }),
         { status: 502, headers: { ...corsHeaders(origin), "Content-Type": "application/json" } },
       );
     }
@@ -136,7 +156,7 @@ Deno.serve(async (req) => {
     });
   } catch (err) {
     return new Response(
-      JSON.stringify({ error: "Network error calling Gemini", details: String(err).slice(0, 200) }),
+      JSON.stringify({ error: "Erro de rede ao chamar o Gemini", details: String(err).slice(0, 200) }),
       { status: 502, headers: { ...corsHeaders(origin), "Content-Type": "application/json" } },
     );
   }
