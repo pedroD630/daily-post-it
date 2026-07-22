@@ -107,9 +107,13 @@ export default function AIInsightPanel({ days, goals, pointsBalance, geminiApiKe
         </h3>
         <span
           className="text-[9px] font-mono uppercase tracking-wider text-indigo-500/70 dark:text-indigo-400/70"
-          title={provider.kind === "chrome-builtin"
-            ? "Runs on your device via Gemini Nano — no data leaves your browser."
-            : "Sent to Google Gemini API with the key you provided in Settings."}
+          title={
+            provider.kind === "chrome-builtin"
+              ? "Runs on your device via Gemini Nano — no data leaves your browser."
+              : provider.kind === "supabase-proxy"
+              ? "Sent to the app's secure backend, which calls Gemini on your behalf."
+              : "Sent to Google Gemini API with the key you provided in Settings."
+          }
         >
           {provider.label}
         </span>
@@ -120,6 +124,8 @@ export default function AIInsightPanel({ days, goals, pointsBalance, geminiApiKe
           <p className="text-[12px] text-slate-600 dark:text-slate-400 leading-snug">
             {provider.kind === "chrome-builtin"
               ? "Análise privada, roda no seu dispositivo. Nada sai do navegador."
+              : provider.kind === "supabase-proxy"
+              ? "Análise via IA. Rápida e segura, sem configurar nada."
               : "Análise via Gemini API (chave sua). Free tier é generoso."}
           </p>
           <button

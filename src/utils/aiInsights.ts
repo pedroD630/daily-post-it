@@ -18,7 +18,7 @@
  * unexpected shape is treated as "not available".
  */
 
-export type AIProviderKind = "chrome-builtin" | "gemini-byok";
+export type AIProviderKind = "chrome-builtin" | "supabase-proxy" | "gemini-byok";
 
 export interface AIProvider {
   kind: AIProviderKind;
@@ -28,10 +28,22 @@ export interface AIProvider {
   generate(systemPrompt: string, userPrompt: string): Promise<string>;
 }
 
-/** Try providers in preference order; return the first that works. */
+/**
+ * Try providers in preference order and return the first that works:
+ *   1. Chrome Built-in AI (on-device Gemini Nano) — private, offline, zero
+ *      round-trip. Desktop Chrome/Edge only.
+ *   2. Supabase proxy (server-side Gemini API with owner's key). Requires
+ *      the ai-insight Edge Function deployed + VITE_AI_PROXY_ENABLED=true.
+ *      This is the "just works" path for mobile users in production.
+ *   3. BYOK Gemini — for users who prefer their own key over the shared
+ *      proxy, or for owners who don't want to run the Edge Function.
+ *   4. null — caller falls back to the rule-based suggestions.
+ */
 export async function detectBestProvider(geminiApiKey?: string): Promise<AIProvider | null> {
   const chrome = await tryChromeBuiltin();
   if (chrome) return chrome;
+  const proxy = await tryProxyProvider();
+  if (proxy) return proxy;
   if (geminiApiKey && geminiApiKey.trim()) return makeGeminiProvider(geminiApiKey.trim());
   return null;
 }
@@ -92,6 +104,62 @@ async function tryChromeBuiltin(): Promise<AIProvider | null> {
     console.warn("Chrome Built-in AI probe failed:", err);
   }
   return null;
+}
+
+/** ----------------------------------------------------------------------- */
+
+/**
+ * Zero-config AI for mobile / non-Chrome users. Uses the ai-insight
+ * Supabase Edge Function which owns the Gemini key server-side.
+ *
+ * Prereqs (owner side, one-time):
+ *   VITE_AI_PROXY_ENABLED=true    (turns this provider on in the client)
+ *   supabase secrets set GEMINI_API_KEY=...
+ *   supabase functions deploy ai-insight
+ *
+ * Auth: uses the user's Firebase ID token (via Supabase Third-Party Auth).
+ * Supabase's default verify_jwt on the function rejects anonymous callers.
+ */
+async function tryProxyProvider(): Promise<AIProvider | null> {
+  const env = (import.meta as any).env;
+  if (env?.VITE_AI_PROXY_ENABLED !== "true") return null;
+  try {
+    const { supabase } = await import("../db/supabase");
+    if (!supabase) return null;
+    const { getAuth } = await import("firebase/auth");
+    const user = getAuth().currentUser;
+    if (!user) return null;
+
+    return {
+      kind: "supabase-proxy",
+      label: "Cloud AI (Gemini)",
+      generate: async (system: string, userPrompt: string) => {
+        const { data, error } = await supabase.functions.invoke("ai-insight", {
+          body: { system, user: userPrompt },
+        });
+        if (error) {
+          // supabase-js wraps HTTP errors as FunctionsHttpError. Try to surface
+          // whatever the function returned as JSON.
+          const status = (error as any).context?.status ?? "?";
+          const raw = (error as any).context?.body
+            ? await (error as any).context.body.text?.().catch(() => "")
+            : "";
+          let human = "AI backend error";
+          try {
+            const parsed = raw ? JSON.parse(raw) : null;
+            if (parsed?.error) human = parsed.error;
+          } catch { /* raw not JSON */ }
+          throw new Error(`${human} (HTTP ${status})`);
+        }
+        const text = (data as any)?.text;
+        if (!text) throw new Error("Empty response from AI");
+        return String(text).trim();
+      },
+    };
+  } catch (err) {
+    console.warn("Supabase proxy AI probe failed:", err);
+    return null;
+  }
 }
 
 /** ----------------------------------------------------------------------- */
