@@ -105,13 +105,26 @@ mensagem em 4000 caracteres pra manter custo previsível.
 
 | Cenário | Custo |
 |---|---|
-| 100 usuários × 3 mensagens/dia = 9k req/mês | **< R$ 5/mês** (gemini-2.0-flash é muito barato) |
-| 1000 usuários × 5 mensagens/dia = 150k req/mês | **~R$ 20-40/mês** |
+| 100 usuários × 3 mensagens/dia = 9k req/mês | **< R$ 5/mês** (gemini-2.5-flash-lite é o modelo mais barato disponível) |
+| 1000 usuários × 5 mensagens/dia = 150k req/mês | **~R$ 15-30/mês** |
 | Supabase Edge Functions | Grátis até 500k invocations/mês |
 
-Preço de referência Gemini 2.0 Flash: ~$0.10/1M tokens input, ~$0.40/1M
-tokens output. Uma conversa típica de coaching usa poucas centenas de
-tokens por turno.
+Preço de referência Gemini 2.5 Flash-Lite: mais barato que o Flash padrão.
+Uma conversa típica de coaching usa poucas centenas de tokens por turno.
+
+## Modelo usado + fallback automático
+
+A função tenta, nesta ordem: `gemini-2.5-flash-lite` →
+`gemini-2.0-flash-lite-001` → `gemini-flash-lite-latest`. Se o modelo
+principal retornar 404 (aposentado/renomeado pela Google — já aconteceu
+uma vez com `gemini-2.0-flash`), a função automaticamente tenta o próximo
+da lista, sem exigir novo deploy. Erros que não são 404 (429 rate limit,
+400 bad request) não disparam fallback, pois trocar de modelo não resolve.
+
+Se todos os modelos da lista pararem de funcionar, olhe a lista atualizada
+em `GET https://generativelanguage.googleapis.com/v1beta/models?key=SUA_CHAVE`
+e atualize o array `ALLOWED_MODELS` em `index.ts` (e o `GEMINI_MODEL_CHAIN`
+equivalente em `src/utils/aiInsights.ts` pro caminho BYOK).
 
 ## Monitoramento
 
