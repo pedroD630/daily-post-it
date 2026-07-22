@@ -2,30 +2,41 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * AI provider abstraction for the Insights view.
+ * AI provider abstraction for the Insights AI Coach chat.
  *
- * Zero recurring cost is the whole point:
- *   1. Chrome Built-in AI (Gemini Nano on-device) — private, offline, free.
- *      Requires Chrome 138+ or Edge with the feature enabled. First call
- *      may trigger a one-time ~2GB model download.
- *   2. Gemini API BYOK — user pastes their own free-tier API key in Settings.
- *      Google AI Studio free tier is generous (15 RPM / 1M ctx tokens).
- *   3. null — no provider available. Caller falls back to the rule-based
- *      suggestions that already exist in the app.
+ * Provider priority:
+ *   1. Supabase proxy — server-side Gemini call using the app owner's paid
+ *      key (Deno.env in the Edge Function). This is the primary, "just
+ *      works" path: the user does nothing, no key to paste, works on any
+ *      device/browser. Requires VITE_AI_PROXY_ENABLED=true + the
+ *      ai-insight function deployed with GEMINI_API_KEY configured.
+ *   2. Gemini API BYOK — optional advanced fallback for local development
+ *      or users who want to use their own key instead of the shared one.
  *
- * The `LanguageModel` / `window.ai` typings are missing from lib.dom, so we
- * bypass TS with `as any` casts. The runtime checks are defensive: any
- * unexpected shape is treated as "not available".
+ * Chrome Built-in AI (Gemini Nano on-device) was evaluated and dropped:
+ * availability was inconsistent across devices in practice, so it added
+ * complexity without a reliable payoff. The paid proxy is simpler and
+ * guarantees a consistent experience for every user.
  */
 
-export type AIProviderKind = "chrome-builtin" | "supabase-proxy" | "gemini-byok";
+export type AIProviderKind = "supabase-proxy" | "gemini-byok";
+
+export interface ChatMessage {
+  role: "user" | "model";
+  text: string;
+}
 
 export interface AIProvider {
   kind: AIProviderKind;
   /** Human-readable label shown in the UI badge. */
   label: string;
-  /** Runs the model. Should throw on hard failure (network, quota, bad key). */
-  generate(systemPrompt: string, userPrompt: string): Promise<string>;
+  /**
+   * Runs one turn of the conversation: given the system prompt (rebuilt
+   * fresh each call from current stats) and the full message history
+   * (already includes the newest user message), returns the model's reply.
+   * Should throw a user-readable Error on hard failure.
+   */
+  chat(systemPrompt: string, history: ChatMessage[]): Promise<string>;
 }
 
 /**
@@ -34,32 +45,11 @@ export interface AIProvider {
  * the app) can see exactly what's missing instead of guessing.
  */
 export interface ProviderStatus {
-  chromeBuiltin: { available: boolean; reason: string };
   proxy: { enabled: boolean; loggedIn: boolean; reason: string };
   byok: { hasKey: boolean };
 }
 
 export async function probeProviders(geminiApiKey?: string): Promise<ProviderStatus> {
-  // Chrome Built-in
-  let chromeBuiltin = { available: false, reason: "Chrome/Edge 138+ desktop only" };
-  try {
-    const LM: any = (globalThis as any).LanguageModel;
-    if (LM?.availability) {
-      const s: string = await LM.availability();
-      if (s === "available") chromeBuiltin = { available: true, reason: "ready" };
-      else if (s === "downloadable" || s === "downloading") chromeBuiltin = { available: true, reason: `model ${s}` };
-      else chromeBuiltin = { available: false, reason: `LanguageModel.availability=${s}` };
-    } else if ((globalThis as any).ai?.languageModel?.capabilities) {
-      const caps = await (globalThis as any).ai.languageModel.capabilities();
-      chromeBuiltin = caps.available === "readily"
-        ? { available: true, reason: "ready (legacy API)" }
-        : { available: false, reason: `capabilities.available=${caps.available}` };
-    }
-  } catch (err) {
-    chromeBuiltin = { available: false, reason: `probe error: ${String(err).slice(0, 80)}` };
-  }
-
-  // Proxy
   const env = (import.meta as any).env;
   const proxyFlag = env?.VITE_AI_PROXY_ENABLED === "true";
   let proxy = { enabled: proxyFlag, loggedIn: false, reason: "" };
@@ -76,26 +66,16 @@ export async function probeProviders(geminiApiKey?: string): Promise<ProviderSta
     }
   }
 
-  // BYOK
   const byok = { hasKey: !!(geminiApiKey && geminiApiKey.trim()) };
-
-  return { chromeBuiltin, proxy, byok };
+  return { proxy, byok };
 }
 
 /**
  * Try providers in preference order and return the first that works:
- *   1. Chrome Built-in AI (on-device Gemini Nano) — private, offline, zero
- *      round-trip. Desktop Chrome/Edge only.
- *   2. Supabase proxy (server-side Gemini API with owner's key). Requires
- *      the ai-insight Edge Function deployed + VITE_AI_PROXY_ENABLED=true.
- *      This is the "just works" path for mobile users in production.
- *   3. BYOK Gemini — for users who prefer their own key over the shared
- *      proxy, or for owners who don't want to run the Edge Function.
- *   4. null — caller falls back to the rule-based suggestions.
+ * Supabase proxy (paid key, zero user config) first, BYOK as an optional
+ * override for anyone who configured their own key in Settings.
  */
 export async function detectBestProvider(geminiApiKey?: string): Promise<AIProvider | null> {
-  const chrome = await tryChromeBuiltin();
-  if (chrome) return chrome;
   const proxy = await tryProxyProvider();
   if (proxy) return proxy;
   if (geminiApiKey && geminiApiKey.trim()) return makeGeminiProvider(geminiApiKey.trim());
@@ -104,71 +84,14 @@ export async function detectBestProvider(geminiApiKey?: string): Promise<AIProvi
 
 /** ----------------------------------------------------------------------- */
 
-async function tryChromeBuiltin(): Promise<AIProvider | null> {
-  if (typeof self === "undefined") return null;
-
-  try {
-    // Chrome 138+ / Edge stable: exposes `LanguageModel` global.
-    const LM: any = (globalThis as any).LanguageModel;
-    if (LM && typeof LM.availability === "function") {
-      const status: string = await LM.availability();
-      // 'available' works instantly. 'downloadable' means first call triggers
-      // model download — acceptable because the user has to click to run.
-      // 'downloading' likewise — session.create() will await the download.
-      if (status === "available" || status === "downloadable" || status === "downloading") {
-        return {
-          kind: "chrome-builtin",
-          label: "Chrome Built-in (Gemini Nano)",
-          generate: async (system, user) => {
-            const session: any = await LM.create({
-              initialPrompts: [{ role: "system", content: system }],
-            });
-            try {
-              const out = await session.prompt(user);
-              return String(out || "").trim();
-            } finally {
-              try { session.destroy?.(); } catch { /* ignore */ }
-            }
-          },
-        };
-      }
-    }
-
-    // Chrome 128-137 origin trial: window.ai.languageModel.
-    const legacy: any = (globalThis as any).ai?.languageModel;
-    if (legacy?.capabilities) {
-      const caps = await legacy.capabilities();
-      if (caps.available === "readily" || caps.available === "after-download") {
-        return {
-          kind: "chrome-builtin",
-          label: "Chrome Built-in (Gemini Nano)",
-          generate: async (system, user) => {
-            const session: any = await legacy.create({ systemPrompt: system });
-            try {
-              const out = await session.prompt(user);
-              return String(out || "").trim();
-            } finally {
-              try { session.destroy?.(); } catch { /* ignore */ }
-            }
-          },
-        };
-      }
-    }
-  } catch (err) {
-    console.warn("Chrome Built-in AI probe failed:", err);
-  }
-  return null;
-}
-
-/** ----------------------------------------------------------------------- */
-
 /**
- * Zero-config AI for mobile / non-Chrome users. Uses the ai-insight
- * Supabase Edge Function which owns the Gemini key server-side.
+ * Zero-config AI. Uses the ai-insight Supabase Edge Function, which owns
+ * the paid Gemini key server-side. Works identically on mobile, desktop,
+ * any browser — the user never sees or manages a key.
  *
  * Prereqs (owner side, one-time):
  *   VITE_AI_PROXY_ENABLED=true    (turns this provider on in the client)
- *   supabase secrets set GEMINI_API_KEY=...
+ *   supabase secrets set GEMINI_API_KEY=...  (billing enabled — see DEPLOY.md)
  *   supabase functions deploy ai-insight
  *
  * Auth: uses the user's Firebase ID token (via Supabase Third-Party Auth).
@@ -186,19 +109,17 @@ async function tryProxyProvider(): Promise<AIProvider | null> {
 
     return {
       kind: "supabase-proxy",
-      label: "Cloud AI (Gemini)",
-      generate: async (system: string, userPrompt: string) => {
+      label: "Coach IA",
+      chat: async (system: string, history: ChatMessage[]) => {
         const { data, error } = await supabase.functions.invoke("ai-insight", {
-          body: { system, user: userPrompt },
+          body: { system, messages: history },
         });
         if (error) {
-          // supabase-js wraps HTTP errors as FunctionsHttpError. Try to surface
-          // whatever the function returned as JSON.
           const status = (error as any).context?.status ?? "?";
           const raw = (error as any).context?.body
             ? await (error as any).context.body.text?.().catch(() => "")
             : "";
-          let human = "AI backend error";
+          let human = "Erro no backend de IA";
           try {
             const parsed = raw ? JSON.parse(raw) : null;
             if (parsed?.error) human = parsed.error;
@@ -206,7 +127,7 @@ async function tryProxyProvider(): Promise<AIProvider | null> {
           throw new Error(`${human} (HTTP ${status})`);
         }
         const text = (data as any)?.text;
-        if (!text) throw new Error("Empty response from AI");
+        if (!text) throw new Error("Resposta vazia da IA");
         return String(text).trim();
       },
     };
@@ -221,18 +142,20 @@ async function tryProxyProvider(): Promise<AIProvider | null> {
 function makeGeminiProvider(apiKey: string): AIProvider {
   return {
     kind: "gemini-byok",
-    label: "Gemini API (your key)",
-    generate: async (system, user) => {
-      // gemini-2.0-flash is fast + generous free tier + very cheap paid tier.
+    label: "Gemini (sua chave)",
+    chat: async (system: string, history: ChatMessage[]) => {
       const model = "gemini-2.0-flash";
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
       const body = {
-        contents: [{ role: "user", parts: [{ text: user }] }],
+        contents: history.slice(-24).map((m) => ({
+          role: m.role === "model" ? "model" : "user",
+          parts: [{ text: m.text.slice(0, 4000) }],
+        })),
         systemInstruction: { role: "system", parts: [{ text: system }] },
         generationConfig: {
           temperature: 0.7,
           topP: 0.9,
-          maxOutputTokens: 400,
+          maxOutputTokens: 500,
         },
       };
       const res = await fetch(url, {
@@ -242,7 +165,6 @@ function makeGeminiProvider(apiKey: string): AIProvider {
       });
       if (!res.ok) {
         const errText = await res.text().catch(() => "");
-        // Give the caller something readable in the UI.
         if (res.status === 400) throw new Error("Chave da API inválida ou requisição malformada.");
         if (res.status === 401 || res.status === 403) throw new Error("Chave da API não autorizada. Verifique em Google AI Studio.");
         if (res.status === 429) throw new Error("Limite de requisições atingido no free tier. Tente em alguns segundos.");
@@ -251,7 +173,6 @@ function makeGeminiProvider(apiKey: string): AIProvider {
       const data = await res.json();
       const text = data.candidates?.[0]?.content?.parts?.map((p: any) => p?.text).filter(Boolean).join("\n");
       if (!text) {
-        // Sometimes Gemini blocks a response and returns finishReason=SAFETY.
         const reason = data.candidates?.[0]?.finishReason;
         if (reason && reason !== "STOP") throw new Error(`Gemini bloqueou a resposta (${reason}).`);
         throw new Error("Gemini retornou resposta vazia.");
@@ -266,7 +187,7 @@ export async function validateGeminiKey(apiKey: string): Promise<boolean> {
   if (!apiKey.trim()) return false;
   try {
     const p = makeGeminiProvider(apiKey.trim());
-    const out = await p.generate("Say only 'ok'.", "ping");
+    const out = await p.chat("Say only 'ok'.", [{ role: "user", text: "ping" }]);
     return out.length > 0;
   } catch (err) {
     console.warn("Gemini key validation failed:", err);

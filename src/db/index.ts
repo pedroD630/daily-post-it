@@ -8,8 +8,10 @@ import { Day, Goal, Settings } from "../types";
 const DB_NAME = "postit_db";
 // v2: introduced "points_ledger" store
 // v3: introduced "goals" store
-const DB_VERSION = 3;
+// v4: introduced "ai_chat" store (single AI Coach conversation)
+const DB_VERSION = 4;
 const POINTS_BALANCE_KEY = "balance";
+const AI_CHAT_KEY = "default";
 
 export const DEFAULT_SETTINGS: Settings = {
   postItColor: "#fef3c7", // Yellow Preset
@@ -53,6 +55,10 @@ export function initDB(): Promise<IDBDatabase> {
       // v3: long-term goals
       if (!db.objectStoreNames.contains("goals")) {
         db.createObjectStore("goals", { keyPath: "id" });
+      }
+      // v4: single AI Coach conversation, keyed by "default"
+      if (!db.objectStoreNames.contains("ai_chat")) {
+        db.createObjectStore("ai_chat", { keyPath: "id" });
       }
     };
   });
@@ -274,6 +280,58 @@ export async function deleteGoalLocal(id: string): Promise<void> {
     const tx = db.transaction("goals", "readwrite");
     const store = tx.objectStore("goals");
     const req = store.delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/* -------------------------------------------------------------------------
+ * AI Coach chat — single ongoing conversation, stored locally per device.
+ * ----------------------------------------------------------------------- */
+
+export interface AIChatMessageRecord {
+  role: "user" | "model";
+  text: string;
+  ts: number;
+}
+
+interface AIChatRow {
+  id: "default";
+  messages: AIChatMessageRecord[];
+}
+
+export async function getAIChatHistory(): Promise<AIChatMessageRecord[]> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("ai_chat", "readonly");
+    const store = tx.objectStore("ai_chat");
+    const req = store.get(AI_CHAT_KEY);
+    req.onsuccess = () => {
+      const row = req.result as AIChatRow | undefined;
+      resolve(row?.messages ?? []);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function saveAIChatHistory(messages: AIChatMessageRecord[]): Promise<void> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("ai_chat", "readwrite");
+    const store = tx.objectStore("ai_chat");
+    const row: AIChatRow = { id: AI_CHAT_KEY, messages };
+    const req = store.put(row);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function clearAIChatHistory(): Promise<void> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("ai_chat", "readwrite");
+    const store = tx.objectStore("ai_chat");
+    const req = store.delete(AI_CHAT_KEY);
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
   });

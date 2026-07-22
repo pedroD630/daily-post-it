@@ -13,13 +13,13 @@ import { Flame, CheckCircle2, Target, Trophy, Sparkles } from "lucide-react";
 import { Day, Goal } from "../types";
 import { computeStreak, computeWeeklyBars, computeStats } from "../utils/insights";
 import { formatBalance } from "../utils/points";
-import AIInsightPanel from "./AIInsightPanel";
+import AIChatPanel from "./AIChatPanel";
 
 interface InsightsViewProps {
   allDays: Day[]; // every record incl. today and discarded snapshots
   pointsBalance: number;
-  goals?: Goal[];       // used by the AI panel for goal-aware analysis
-  geminiApiKey?: string; // BYOK fallback when Chrome Built-in AI not available
+  goals?: Goal[];        // used by the AI coach for goal-aware analysis
+  geminiApiKey?: string; // optional BYOK override (Coach IA proxy is primary)
 }
 
 export default function InsightsView({ allDays, pointsBalance, goals = [], geminiApiKey }: InsightsViewProps) {
@@ -60,8 +60,8 @@ export default function InsightsView({ allDays, pointsBalance, goals = [], gemin
         </motion.div>
       </div>
 
-      {/* AI Analysis (silent no-op when no provider is available) */}
-      <AIInsightPanel
+      {/* AI Coach chat */}
+      <AIChatPanel
         days={allDays}
         goals={goals}
         pointsBalance={pointsBalance}
