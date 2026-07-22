@@ -10,16 +10,19 @@
 import React, { useMemo } from "react";
 import { motion } from "motion/react";
 import { Flame, CheckCircle2, Target, Trophy, Sparkles } from "lucide-react";
-import { Day } from "../types";
+import { Day, Goal } from "../types";
 import { computeStreak, computeWeeklyBars, computeStats } from "../utils/insights";
 import { formatBalance } from "../utils/points";
+import AIInsightPanel from "./AIInsightPanel";
 
 interface InsightsViewProps {
   allDays: Day[]; // every record incl. today and discarded snapshots
   pointsBalance: number;
+  goals?: Goal[];       // used by the AI panel for goal-aware analysis
+  geminiApiKey?: string; // BYOK fallback when Chrome Built-in AI not available
 }
 
-export default function InsightsView({ allDays, pointsBalance }: InsightsViewProps) {
+export default function InsightsView({ allDays, pointsBalance, goals = [], geminiApiKey }: InsightsViewProps) {
   const streak = useMemo(() => computeStreak(allDays), [allDays]);
   const bars = useMemo(() => computeWeeklyBars(allDays), [allDays]);
   const stats = useMemo(() => computeStats(allDays), [allDays]);
@@ -56,6 +59,14 @@ export default function InsightsView({ allDays, pointsBalance }: InsightsViewPro
           </span>
         </motion.div>
       </div>
+
+      {/* AI Analysis (silent no-op when no provider is available) */}
+      <AIInsightPanel
+        days={allDays}
+        goals={goals}
+        pointsBalance={pointsBalance}
+        geminiApiKey={geminiApiKey}
+      />
 
       {/* Weekly chart */}
       <div
