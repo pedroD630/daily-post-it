@@ -13,9 +13,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { Sparkles, RefreshCw, AlertTriangle, Loader2 } from "lucide-react";
+import { Sparkles, RefreshCw, AlertTriangle, Loader2, Info, CheckCircle2, XCircle } from "lucide-react";
 import { Day, Goal } from "../types";
-import { AIProvider, detectBestProvider } from "../utils/aiInsights";
+import { AIProvider, detectBestProvider, probeProviders, ProviderStatus } from "../utils/aiInsights";
 import { buildInsightPrompt } from "../utils/aiPromptBuilder";
 
 interface Props {
@@ -31,6 +31,8 @@ const CACHE_TTL_MS = 30 * 60 * 1000; // 30 min
 
 export default function AIInsightPanel({ days, goals, pointsBalance, geminiApiKey }: Props) {
   const [provider, setProvider] = useState<AIProvider | null>(null);
+  const [status, setStatus] = useState<ProviderStatus | null>(null);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [detecting, setDetecting] = useState(true);
   const [state, setState] = useState<State>("idle");
   const [result, setResult] = useState<string>("");
@@ -49,8 +51,8 @@ export default function AIInsightPanel({ days, goals, pointsBalance, geminiApiKe
   useEffect(() => {
     let alive = true;
     setDetecting(true);
-    detectBestProvider(geminiApiKey)
-      .then((p) => { if (alive) setProvider(p); })
+    Promise.all([detectBestProvider(geminiApiKey), probeProviders(geminiApiKey)])
+      .then(([p, s]) => { if (alive) { setProvider(p); setStatus(s); } })
       .finally(() => { if (alive) setDetecting(false); });
     return () => { alive = false; };
   }, [geminiApiKey]);
@@ -72,7 +74,65 @@ export default function AIInsightPanel({ days, goals, pointsBalance, geminiApiKe
   }, [provider, fingerprint]);
 
   if (detecting) return null;      // avoid flicker on first render
-  if (!provider) return null;      // silent fallback: rule-based section remains
+
+  // No provider available → show a discovery card explaining how to enable
+  // one, plus a "Diagnostics" toggle that shows exactly which options are
+  // blocked and why (huge time-saver for the app owner debugging deploys).
+  if (!provider) {
+    return (
+      <section
+        id="ai-insight-panel-setup"
+        className="relative overflow-hidden rounded-2xl p-4 shadow-sm border border-indigo-200/60 dark:border-indigo-800/50 bg-gradient-to-br from-indigo-50 via-purple-50 to-fuchsia-50 dark:from-indigo-950/60 dark:via-purple-950/60 dark:to-fuchsia-950/60"
+      >
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <h3 className="flex items-center gap-1.5 font-sans text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+            <Sparkles className="w-4 h-4" />
+            AI Analysis
+          </h3>
+          <span className="text-[9px] font-mono uppercase tracking-wider text-indigo-500/70">
+            not configured
+          </span>
+        </div>
+
+        <p className="text-[12px] text-slate-700 dark:text-slate-300 leading-relaxed mb-2">
+          Análise por IA está disponível de 3 formas — nenhuma ativa neste dispositivo agora:
+        </p>
+
+        <ul className="text-[11px] text-slate-600 dark:text-slate-400 space-y-1 mb-2">
+          <li>• <strong>Cloud AI</strong>: proprietário do app deploya <code className="text-[10px] font-mono bg-slate-100 dark:bg-slate-800 px-1 rounded">supabase/functions/ai-insight</code> e liga <code className="text-[10px] font-mono bg-slate-100 dark:bg-slate-800 px-1 rounded">VITE_AI_PROXY_ENABLED=true</code> no Vercel</li>
+          <li>• <strong>Chrome desktop 138+</strong>: roda no dispositivo, sem config</li>
+          <li>• <strong>Sua chave Gemini</strong>: cole em Settings → Advanced: AI Insights (grátis em <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" className="text-indigo-600 dark:text-indigo-400 underline">AI Studio</a>)</li>
+        </ul>
+
+        <button
+          type="button"
+          onClick={() => setShowDiagnostics((v) => !v)}
+          className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 cursor-pointer"
+        >
+          <Info className="w-3 h-3" />
+          {showDiagnostics ? "esconder" : "ver"} diagnóstico
+        </button>
+
+        {showDiagnostics && status && (
+          <div className="mt-2 p-2 rounded-lg bg-slate-900/5 dark:bg-black/30 border border-slate-200 dark:border-slate-700 space-y-1.5 font-mono text-[10.5px]">
+            <DiagRow ok={status.chromeBuiltin.available} label="Chrome Built-in" detail={status.chromeBuiltin.reason} />
+            <DiagRow
+              ok={status.proxy.enabled && status.proxy.loggedIn}
+              label="Cloud proxy"
+              detail={
+                !status.proxy.enabled
+                  ? status.proxy.reason
+                  : status.proxy.loggedIn
+                  ? "ready"
+                  : status.proxy.reason
+              }
+            />
+            <DiagRow ok={status.byok.hasKey} label="BYOK key" detail={status.byok.hasKey ? "configured" : "no key in Settings"} />
+          </div>
+        )}
+      </section>
+    );
+  }
 
   const run = async () => {
     if (!provider) return;
@@ -183,5 +243,17 @@ export default function AIInsightPanel({ days, goals, pointsBalance, geminiApiKe
         </div>
       )}
     </section>
+  );
+}
+
+function DiagRow({ ok, label, detail }: { ok: boolean; label: string; detail: string }) {
+  return (
+    <div className="flex items-start gap-1.5 text-slate-700 dark:text-slate-300">
+      {ok
+        ? <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0 mt-0.5" />
+        : <XCircle className="w-3 h-3 text-red-500 shrink-0 mt-0.5" />}
+      <span className="font-semibold shrink-0">{label}:</span>
+      <span className="opacity-80 break-all">{detail}</span>
+    </div>
   );
 }
