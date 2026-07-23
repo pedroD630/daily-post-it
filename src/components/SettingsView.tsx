@@ -87,6 +87,7 @@ export default function SettingsView({
     initialSettings.paperTexture === undefined ? true : initialSettings.paperTexture
   );
   const [selectedTheme, setSelectedTheme] = useState<ThemeMode>(initialSettings.theme || "system");
+  const [liquidGlass, setLiquidGlass] = useState(!!initialSettings.liquidGlass);
 
   // BYOK for AI Insights (fallback on browsers without Chrome Built-in AI)
   const [aiSectionOpen, setAiSectionOpen] = useState(!!initialSettings.geminiApiKey);
@@ -235,6 +236,7 @@ export default function SettingsView({
       paperTexture: paperTextureEnabled,
       theme: selectedTheme,
       geminiApiKey: geminiKey.trim() || undefined,
+      liquidGlass,
     });
   };
 
@@ -523,6 +525,34 @@ export default function SettingsView({
             <span
               className={`absolute top-0.5 w-5 h-5 rounded-full bg-white dark:bg-slate-200 shadow transition-transform duration-200 ${
                 paperTextureEnabled ? "translate-x-5" : "translate-x-0.5"
+              }`}
+            />
+          </button>
+        </div>
+
+        {/* Section 4b: Liquid Glass Toggle */}
+        <div className="flex items-center justify-between gap-3" id="settings-section-liquidglass">
+          <div className="flex flex-col">
+            <label htmlFor="settings-toggle-liquidglass" className="font-sans text-xs font-bold uppercase tracking-wider text-slate-500">
+              Liquid Glass
+            </label>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">
+              Superfícies translúcidas e foscas no estilo vidro (navbar, cards, painéis).
+            </span>
+          </div>
+          <button
+            id="settings-toggle-liquidglass"
+            type="button"
+            role="switch"
+            aria-checked={liquidGlass}
+            onClick={() => setLiquidGlass((v) => !v)}
+            className={`relative w-11 h-6 rounded-full transition-colors duration-200 shrink-0 cursor-pointer ${
+              liquidGlass ? "bg-slate-800 dark:bg-slate-100" : "bg-slate-300 dark:bg-slate-700"
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 w-5 h-5 rounded-full bg-white dark:bg-slate-200 shadow transition-transform duration-200 ${
+                liquidGlass ? "translate-x-5" : "translate-x-0.5"
               }`}
             />
           </button>

@@ -7,22 +7,29 @@
  * Not multi-thread by design: one ongoing conversation per user, per spec.
  */
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Sparkles, Send, Loader2, AlertTriangle, Info, CheckCircle2, XCircle, Trash2, Bot, User as UserIcon } from "lucide-react";
 import { Day, Goal } from "../types";
 import { AIProvider, ChatMessage, detectBestProvider, probeProviders, ProviderStatus } from "../utils/aiInsights";
 import { buildSystemPrompt, buildWelcomeMessage } from "../utils/aiPromptBuilder";
 import { getAIChatHistory, saveAIChatHistory, clearAIChatHistory, AIChatMessageRecord } from "../db";
+import { parseAIReply, ParsedCheckpoint } from "../utils/checkpointParser";
+import { Flag, Plus } from "lucide-react";
 
 interface Props {
   days: Day[];
   goals: Goal[];
   pointsBalance: number;
   geminiApiKey?: string;
+  /** Persist an AI-proposed checkpoint (caller resolves goalId by title). */
+  onAddCheckpoint?: (cp: ParsedCheckpoint) => Promise<void> | void;
+  /** Pre-fill + optionally auto-send a message (used by "next step" flow). */
+  seedMessage?: string;
+  onSeedConsumed?: () => void;
 }
 
-export default function AIChatPanel({ days, goals, pointsBalance, geminiApiKey }: Props) {
+export default function AIChatPanel({ days, goals, pointsBalance, geminiApiKey, onAddCheckpoint, seedMessage, onSeedConsumed }: Props) {
   const [provider, setProvider] = useState<AIProvider | null>(null);
   const [status, setStatus] = useState<ProviderStatus | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
@@ -33,6 +40,9 @@ export default function AIChatPanel({ days, goals, pointsBalance, geminiApiKey }
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>("");
+  // Transient checkpoint suggestions from the latest reply (until accepted).
+  const [pendingCheckpoints, setPendingCheckpoints] = useState<ParsedCheckpoint[]>([]);
+  const [addedTitles, setAddedTitles] = useState<Set<string>>(new Set());
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -67,6 +77,56 @@ export default function AIChatPanel({ days, goals, pointsBalance, geminiApiKey }
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, sending]);
+
+  const persist = useCallback(async (next: AIChatMessageRecord[]) => {
+    setMessages(next);
+    try { await saveAIChatHistory(next); } catch (e) { console.warn("Failed to persist AI chat:", e); }
+  }, []);
+
+  // Core send. Accepts explicit text so the "next step" seed flow can send
+  // programmatically without going through the input box.
+  const sendText = useCallback(async (rawText: string) => {
+    const text = rawText.trim();
+    if (!text || sending || !provider || !hydrated) return;
+    setError("");
+    setInput("");
+
+    const userMsg: AIChatMessageRecord = { role: "user", text, ts: Date.now() };
+    setMessages((prev) => {
+      const withUser = [...prev, userMsg];
+      void persist(withUser);
+      return withUser;
+    });
+    setSending(true);
+
+    try {
+      const system = buildSystemPrompt(days, goals, pointsBalance);
+      // Read latest messages via functional state to include the user msg.
+      const historyBase = [...messages, userMsg];
+      const history: ChatMessage[] = historyBase.map((m) => ({ role: m.role, text: m.text }));
+      const reply = await provider.chat(system, history);
+      const parsed = parseAIReply(reply);
+      const modelMsg: AIChatMessageRecord = { role: "model", text: parsed.text, ts: Date.now() };
+      await persist([...historyBase, modelMsg]);
+      if (parsed.checkpoints.length > 0) {
+        setPendingCheckpoints(parsed.checkpoints);
+        setAddedTitles(new Set());
+      }
+    } catch (err: any) {
+      setError(String(err?.message || err));
+    } finally {
+      setSending(false);
+    }
+  }, [sending, provider, hydrated, days, goals, pointsBalance, messages, persist]);
+
+  // Seed flow: when a seedMessage is provided (e.g. "concluí checkpoint X,
+  // qual o próximo passo?"), auto-send it once the panel is ready.
+  useEffect(() => {
+    if (!seedMessage || !provider || !hydrated || sending) return;
+    void sendText(seedMessage);
+    onSeedConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedMessage, provider, hydrated]);
 
   if (detecting || !hydrated) return null; // avoid flicker on first render
 
@@ -125,40 +185,19 @@ export default function AIChatPanel({ days, goals, pointsBalance, geminiApiKey }
   // Chat UI
   // ---------------------------------------------------------------------
 
-  const persist = async (next: AIChatMessageRecord[]) => {
-    setMessages(next);
-    try { await saveAIChatHistory(next); } catch (e) { console.warn("Failed to persist AI chat:", e); }
-  };
-
-  const send = async () => {
-    const text = input.trim();
-    if (!text || sending || !provider) return;
-    setError("");
-    setInput("");
-
-    const userMsg: AIChatMessageRecord = { role: "user", text, ts: Date.now() };
-    const withUser = [...messages, userMsg];
-    await persist(withUser);
-    setSending(true);
-
-    try {
-      const system = buildSystemPrompt(days, goals, pointsBalance);
-      const history: ChatMessage[] = withUser.map((m) => ({ role: m.role, text: m.text }));
-      const reply = await provider.chat(system, history);
-      const modelMsg: AIChatMessageRecord = { role: "model", text: reply, ts: Date.now() };
-      await persist([...withUser, modelMsg]);
-    } catch (err: any) {
-      setError(String(err?.message || err));
-    } finally {
-      setSending(false);
-    }
-  };
+  const send = () => void sendText(input);
 
   const handleClear = async () => {
     if (!window.confirm("Apagar toda a conversa com o Coach IA?")) return;
     await clearAIChatHistory();
     setMessages([]);
     setError("");
+    setPendingCheckpoints([]);
+  };
+
+  const acceptCheckpoint = async (cp: ParsedCheckpoint) => {
+    await onAddCheckpoint?.(cp);
+    setAddedTitles((prev) => new Set(prev).add(cp.title));
   };
 
   const welcome = messages.length === 0 ? buildWelcomeMessage(days, goals) : null;
@@ -214,6 +253,49 @@ export default function AIChatPanel({ days, goals, pointsBalance, geminiApiKey }
           <div className="flex items-start gap-2 text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 rounded-lg p-2">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
             <span>{error}</span>
+          </div>
+        )}
+
+        {/* AI-proposed checkpoint suggestions */}
+        {pendingCheckpoints.length > 0 && onAddCheckpoint && (
+          <div className="flex flex-col gap-1.5 mt-1">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                <Flag className="w-3 h-3" /> Checkpoints sugeridos
+              </span>
+              <button
+                type="button"
+                onClick={() => setPendingCheckpoints([])}
+                className="text-[10px] font-mono text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                dispensar
+              </button>
+            </div>
+            {pendingCheckpoints.map((cp, i) => {
+              const added = addedTitles.has(cp.title);
+              return (
+                <div key={i} className="flex items-start gap-2 bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-2.5">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-100 leading-snug">{cp.title}</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">→ {cp.goalTitle}</p>
+                    {cp.description && <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5 leading-snug">{cp.description}</p>}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => acceptCheckpoint(cp)}
+                    disabled={added}
+                    className={`shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold cursor-pointer transition-colors ${
+                      added
+                        ? "bg-emerald-600 text-white cursor-default"
+                        : "bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 border border-emerald-300 hover:bg-emerald-100 dark:hover:bg-slate-700"
+                    }`}
+                  >
+                    <Plus className="w-3 h-3" />
+                    {added ? "Adicionado" : "Adicionar"}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

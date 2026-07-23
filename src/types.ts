@@ -51,6 +51,7 @@ export interface Settings {
   paperTexture: boolean; // whether to render the realistic shader-based paper texture
   theme: ThemeMode;      // app-wide color scheme preference
   geminiApiKey?: string; // BYOK for AI Insights (fallback when Chrome Built-in AI not available)
+  liquidGlass?: boolean; // Apple-style frosted translucent surfaces
 }
 
 export type AppView = "main" | "history" | "settings" | "profile" | "shop" | "insights" | "goals";
@@ -72,5 +73,24 @@ export interface Goal {
   baseColor: string;             // hex, defaults to neutral gray
   createdAt: number;
   archived: boolean;             // soft-delete; archived hides from active list
+  updatedAt?: number;            // last-write-wins for cross-device merge
+}
+
+/**
+ * A milestone toward a goal. Usually proposed by the AI coach during a chat
+ * (e.g. "save R$500/month" toward a "R$20k invested" goal) and accepted by
+ * the user, but can be user-created too. When achieved, the coach can
+ * propose an evolution (the next checkpoint).
+ */
+export interface Checkpoint {
+  id: string;                    // crypto.randomUUID()
+  goalId: string;                // the goal this milestone belongs to
+  title: string;                 // e.g. "Guardar R$500 por mês"
+  description?: string;          // optional detail / rationale
+  achieved: boolean;
+  achievedAt: number | null;
+  createdAt: number;
+  order: number;                 // sort within a goal
+  source: "ai" | "user";         // who created it
   updatedAt?: number;            // last-write-wins for cross-device merge
 }

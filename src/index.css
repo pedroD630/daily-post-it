@@ -67,6 +67,41 @@ html.dark ::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.14);
 }
 
+/* -------------------------------------------------------------------------
+ * Liquid Glass theme (opt-in via Settings).
+ * Intensifies every frosted surface the app already renders — the app uses
+ * `backdrop-blur-*` on the navbar, cards, panels, palettes, sheets — so a
+ * single attribute selector lifts them all to an Apple-style glass look
+ * without touching each component. Stronger blur + saturation + a bright
+ * hairline border and inner top highlight.
+ * ----------------------------------------------------------------------- */
+html.liquid-glass [class*="backdrop-blur"] {
+  backdrop-filter: blur(20px) saturate(185%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(185%) !important;
+  border-color: rgba(255, 255, 255, 0.35);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+html.dark.liquid-glass [class*="backdrop-blur"] {
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* Navbar reads as a floating glass bar */
+html.liquid-glass #app-navbar {
+  background-color: rgba(255, 255, 255, 0.5) !important;
+  backdrop-filter: blur(22px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(190%) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.4);
+}
+html.dark.liquid-glass #app-navbar {
+  background-color: rgba(15, 23, 42, 0.42) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 /* Ruled lines for the day-note scratchpad (like a real notepad) */
 .scratchpad-lines {
   background-image: repeating-linear-gradient(

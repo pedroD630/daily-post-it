@@ -9,33 +9,51 @@
 
 import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Plus, Target as TargetIcon, BarChart3, ArchiveRestore } from "lucide-react";
-import { Day, Goal } from "../types";
+import { Plus, Target as TargetIcon, BarChart3, ArchiveRestore, Flag } from "lucide-react";
+import { Checkpoint, Day, Goal } from "../types";
 import GoalCard from "./GoalCard";
 import GoalFormSheet from "./GoalFormSheet";
 import GoalsInsightsPanel from "./GoalsInsightsPanel";
+import CheckpointsPanel from "./CheckpointsPanel";
+import { ParsedCheckpoint } from "../utils/checkpointParser";
 
 interface GoalsViewProps {
   goals: Goal[];
   allDays: Day[];
   pointsBalance: number;
   geminiApiKey?: string;
+  checkpoints: Checkpoint[];
   onSaveGoal: (goal: Goal) => Promise<void> | void;
   onDeleteGoal: (id: string) => Promise<void> | void;
   onArchiveGoal: (id: string, archived: boolean) => Promise<void> | void;
+  onAddCheckpoint: (cp: ParsedCheckpoint) => Promise<void> | void;
+  onToggleCheckpoint: (cp: Checkpoint) => Promise<void> | void;
+  onDeleteCheckpoint: (id: string) => Promise<void> | void;
 }
 
-type Tab = "list" | "insights";
+type Tab = "list" | "insights" | "checkpoints";
 
 const MAX_ACTIVE_GOALS = 12;
 
 export default function GoalsView({
-  goals, allDays, pointsBalance, geminiApiKey, onSaveGoal, onDeleteGoal, onArchiveGoal,
+  goals, allDays, pointsBalance, geminiApiKey, checkpoints,
+  onSaveGoal, onDeleteGoal, onArchiveGoal,
+  onAddCheckpoint, onToggleCheckpoint, onDeleteCheckpoint,
 }: GoalsViewProps) {
   const [tab, setTab] = useState<Tab>("list");
   const [editing, setEditing] = useState<Goal | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  // Seed passed to the AI chat when the user asks for the next step after
+  // achieving a checkpoint. Consumed once by AIChatPanel.
+  const [chatSeed, setChatSeed] = useState<string | undefined>(undefined);
+
+  const askNextStep = (cp: Checkpoint, goal: Goal) => {
+    setChatSeed(
+      `Concluí o checkpoint "${cp.title}" da meta "${goal.title}". Qual deveria ser o próximo passo? Se fizer sentido, proponha o próximo checkpoint (mais ambicioso).`
+    );
+    setTab("insights");
+  };
 
   const active = useMemo(() => goals.filter((g) => !g.archived), [goals]);
   const archived = useMemo(() => goals.filter((g) => g.archived), [goals]);
@@ -84,6 +102,19 @@ export default function GoalsView({
         >
           <BarChart3 className="w-4 h-4" />
           Insights
+        </button>
+        <button
+          id="goals-tab-checkpoints"
+          type="button"
+          onClick={() => setTab("checkpoints")}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-sm font-semibold transition-colors cursor-pointer ${
+            tab === "checkpoints"
+              ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm"
+              : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+          }`}
+        >
+          <Flag className="w-4 h-4" />
+          Checkpoints
         </button>
       </div>
 
@@ -147,7 +178,7 @@ export default function GoalsView({
               </div>
             )}
           </motion.div>
-        ) : (
+        ) : tab === "insights" ? (
           <motion.div
             key="goals-insights"
             initial={{ opacity: 0, y: 8 }}
@@ -155,7 +186,31 @@ export default function GoalsView({
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.18 }}
           >
-            <GoalsInsightsPanel goals={goals} allDays={allDays} pointsBalance={pointsBalance} geminiApiKey={geminiApiKey} />
+            <GoalsInsightsPanel
+              goals={goals}
+              allDays={allDays}
+              pointsBalance={pointsBalance}
+              geminiApiKey={geminiApiKey}
+              onAddCheckpoint={onAddCheckpoint}
+              seedMessage={chatSeed}
+              onSeedConsumed={() => setChatSeed(undefined)}
+            />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="goals-checkpoints"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.18 }}
+          >
+            <CheckpointsPanel
+              checkpoints={checkpoints}
+              goals={goals}
+              onToggleAchieve={onToggleCheckpoint}
+              onDelete={onDeleteCheckpoint}
+              onAskNextStep={askNextStep}
+            />
           </motion.div>
         )}
       </AnimatePresence>

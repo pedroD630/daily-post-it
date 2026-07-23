@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { getAuth } from "firebase/auth";
-import { Day, Goal, Task } from "../types";
+import { Checkpoint, Day, Goal, Task } from "../types";
 
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || "";
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || "";
@@ -354,6 +354,88 @@ export async function pullAllGoalsFromSupabase(userId: string): Promise<Goal[]> 
     }));
   } catch (err) {
     console.error("Failed to pull goals from Supabase:", err);
+    return [];
+  }
+}
+
+/* -------------------------------------------------------------------------
+ * Checkpoints — AI-proposed milestones. Same no-op-if-table-missing pattern.
+ * ----------------------------------------------------------------------- */
+
+function isMissingCheckpointsTable(err: any): boolean {
+  if (!err) return false;
+  const code = err.code || "";
+  const msg = (err.message || "").toLowerCase();
+  return code === "PGRST205" || code === "42P01" || msg.includes("checkpoints");
+}
+
+export async function syncCheckpointToSupabase(cp: Checkpoint, userId: string): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.from("checkpoints").upsert({
+      id: cp.id,
+      user_id: userId,
+      goal_id: cp.goalId,
+      title: cp.title,
+      description: cp.description ?? null,
+      achieved: cp.achieved,
+      achieved_at: cp.achievedAt,
+      created_at: cp.createdAt,
+      sort_order: cp.order,
+      source: cp.source,
+      updated_at: cp.updatedAt ?? Date.now()
+    }, { onConflict: "id" });
+    if (error) {
+      if (isMissingCheckpointsTable(error)) {
+        console.warn("Supabase 'checkpoints' table missing — run migration 007_checkpoints.sql.");
+        return false;
+      }
+      throw error;
+    }
+    return true;
+  } catch (err) {
+    console.error("Supabase checkpoints sync error:", err);
+    return false;
+  }
+}
+
+export async function deleteCheckpointFromSupabase(id: string, userId: string): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.from("checkpoints").delete().eq("id", id).eq("user_id", userId);
+    if (error && !isMissingCheckpointsTable(error)) throw error;
+    return true;
+  } catch (err) {
+    console.error("Supabase checkpoints delete error:", err);
+    return false;
+  }
+}
+
+export async function pullAllCheckpointsFromSupabase(userId: string): Promise<Checkpoint[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase.from("checkpoints").select("*").eq("user_id", userId);
+    if (error) {
+      if (isMissingCheckpointsTable(error)) {
+        console.warn("Supabase 'checkpoints' table missing — run migration 007_checkpoints.sql.");
+        return [];
+      }
+      throw error;
+    }
+    return (data || []).map((c: any): Checkpoint => ({
+      id: c.id,
+      goalId: c.goal_id,
+      title: c.title,
+      description: c.description || undefined,
+      achieved: !!c.achieved,
+      achievedAt: c.achieved_at ? Number(c.achieved_at) : null,
+      createdAt: Number(c.created_at || Date.now()),
+      order: Number(c.sort_order ?? 0),
+      source: (c.source === "user" ? "user" : "ai"),
+      updatedAt: c.updated_at ? Number(c.updated_at) : 0,
+    }));
+  } catch (err) {
+    console.error("Failed to pull checkpoints from Supabase:", err);
     return [];
   }
 }

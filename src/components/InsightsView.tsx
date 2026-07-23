@@ -14,15 +14,17 @@ import { Day, Goal } from "../types";
 import { computeStreak, computeWeeklyBars, computeStats } from "../utils/insights";
 import { formatBalance } from "../utils/points";
 import AIChatPanel from "./AIChatPanel";
+import { ParsedCheckpoint } from "../utils/checkpointParser";
 
 interface InsightsViewProps {
   allDays: Day[]; // every record incl. today and discarded snapshots
   pointsBalance: number;
   goals?: Goal[];        // used by the AI coach for goal-aware analysis
   geminiApiKey?: string; // optional BYOK override (Coach IA proxy is primary)
+  onAddCheckpoint?: (cp: ParsedCheckpoint) => Promise<void> | void;
 }
 
-export default function InsightsView({ allDays, pointsBalance, goals = [], geminiApiKey }: InsightsViewProps) {
+export default function InsightsView({ allDays, pointsBalance, goals = [], geminiApiKey, onAddCheckpoint }: InsightsViewProps) {
   const streak = useMemo(() => computeStreak(allDays), [allDays]);
   const bars = useMemo(() => computeWeeklyBars(allDays), [allDays]);
   const stats = useMemo(() => computeStats(allDays), [allDays]);
@@ -66,6 +68,7 @@ export default function InsightsView({ allDays, pointsBalance, goals = [], gemin
         goals={goals}
         pointsBalance={pointsBalance}
         geminiApiKey={geminiApiKey}
+        onAddCheckpoint={onAddCheckpoint}
       />
 
       {/* Weekly chart */}

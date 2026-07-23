@@ -3,13 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Day, Goal, Settings } from "../types";
+import { Checkpoint, Day, Goal, Settings } from "../types";
 
 const DB_NAME = "postit_db";
 // v2: introduced "points_ledger" store
 // v3: introduced "goals" store
 // v4: introduced "ai_chat" store (single AI Coach conversation)
-const DB_VERSION = 4;
+// v5: introduced "checkpoints" store (AI-proposed goal milestones)
+const DB_VERSION = 5;
 const POINTS_BALANCE_KEY = "balance";
 const AI_CHAT_KEY = "default";
 
@@ -20,7 +21,8 @@ export const DEFAULT_SETTINGS: Settings = {
   paletteId: "pastel",
   paperTexture: true,
   theme: "system",
-  geminiApiKey: undefined
+  geminiApiKey: undefined,
+  liquidGlass: false
 };
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -59,6 +61,10 @@ export function initDB(): Promise<IDBDatabase> {
       // v4: single AI Coach conversation, keyed by "default"
       if (!db.objectStoreNames.contains("ai_chat")) {
         db.createObjectStore("ai_chat", { keyPath: "id" });
+      }
+      // v5: AI-proposed goal milestones
+      if (!db.objectStoreNames.contains("checkpoints")) {
+        db.createObjectStore("checkpoints", { keyPath: "id" });
       }
     };
   });
@@ -337,3 +343,37 @@ export async function clearAIChatHistory(): Promise<void> {
   });
 }
 
+
+/* -------------------------------------------------------------------------
+ * Checkpoints — milestones toward a goal, usually AI-proposed.
+ * ----------------------------------------------------------------------- */
+
+export async function getAllCheckpoints(): Promise<Checkpoint[]> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("checkpoints", "readonly");
+    const req = tx.objectStore("checkpoints").getAll();
+    req.onsuccess = () => resolve((req.result as Checkpoint[]) || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function saveCheckpoint(cp: Checkpoint): Promise<void> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("checkpoints", "readwrite");
+    const req = tx.objectStore("checkpoints").put(cp);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function deleteCheckpointLocal(id: string): Promise<void> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("checkpoints", "readwrite");
+    const req = tx.objectStore("checkpoints").delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}

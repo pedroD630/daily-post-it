@@ -29,6 +29,7 @@ export interface PaletteCommandContext {
   setTheme: (theme: ThemeMode) => void;
   setColorPalette: (paletteId: string) => void;
   togglePaperTexture: () => void;
+  toggleLiquidGlass: () => void;
   jumpToDay: (dayId: string) => void;
   forceSync: () => void;
 }
@@ -103,6 +104,7 @@ export default function CommandPalette({ open, onClose, days, todayId, ctx }: Co
       { kind: "action", id: "theme-dark", label: "Theme: Dark", icon: <Moon className="w-4 h-4" />, keywords: "theme dark escuro tema noite", run: close(() => ctx.setTheme("dark")) },
       { kind: "action", id: "theme-system", label: "Theme: System", icon: <MonitorSmartphone className="w-4 h-4" />, keywords: "theme system auto sistema tema", run: close(() => ctx.setTheme("system")) },
       { kind: "action", id: "toggle-texture", label: "Toggle paper texture", icon: <Layers className="w-4 h-4" />, keywords: "texture paper shader textura papel", run: close(() => ctx.togglePaperTexture()) },
+      { kind: "action", id: "toggle-liquid-glass", label: "Toggle Liquid Glass", icon: <Layers className="w-4 h-4" />, keywords: "liquid glass vidro translucido frosted glassmorphism", run: close(() => ctx.toggleLiquidGlass()) },
     ];
     for (const p of PALETTES) {
       items.push({
