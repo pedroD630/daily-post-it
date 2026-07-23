@@ -131,7 +131,9 @@ Deno.serve(async (req) => {
     });
   }
 
-  const system = String(body.system ?? "").slice(0, 6000);
+  // 16k covers the enriched system prompt (a month of completed + pending
+  // tasks). gemini-2.5-flash-lite has a 1M-token context so this is cheap.
+  const system = String(body.system ?? "").slice(0, 16000);
   const messages = Array.isArray(body.messages) ? body.messages : [];
   if (!system || messages.length === 0) {
     return new Response(JSON.stringify({ error: "Missing 'system' or 'messages'" }), {

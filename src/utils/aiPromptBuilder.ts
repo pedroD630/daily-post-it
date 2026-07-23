@@ -19,8 +19,9 @@ import {
   toWeeklyTarget,
 } from "./goalFrequency";
 
-const MAX_ACTIVITY_SAMPLE = 60;
-const MAX_TASK_TEXT_LEN = 60;
+const MAX_ACTIVITY_SAMPLE = 80;
+const MAX_TASK_TEXT_LEN = 70;
+const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * Builds the (re-generated every turn) system prompt. Rebuilding on every
@@ -48,25 +49,45 @@ export function buildSystemPrompt(days: Day[], goals: Goal[], pointsBalance: num
         .join("\n")
     : "(nenhuma meta cadastrada ainda)";
 
-  // Sample of recently completed task texts — this is what lets the coach
-  // say concrete things like "you've been focusing a lot on X lately".
-  // Newest first, capped, truncated per-item to keep the prompt small.
-  const recentCompleted = [...days]
+  // ALL tasks from the last 30 days — both completed AND pending — so the
+  // coach can reason about successes vs failures, abandoned tasks, and what
+  // the user keeps postponing. A task belongs to the window if its day id
+  // (or completedAt) falls within the last month.
+  const cutoffMs = Date.now() - MONTH_MS;
+  const withinMonth = [...days]
     .filter((d) => !d.discarded)
-    .sort((a, b) => b.id.localeCompare(a.id))
-    .flatMap((d) => d.tasks.filter((t) => t.completed && t.text.trim()))
-    .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))
-    .slice(0, MAX_ACTIVITY_SAMPLE)
-    .map((t) => `- ${t.text.trim().slice(0, MAX_TASK_TEXT_LEN)}`)
-    .join("\n");
+    .filter((d) => {
+      const dayMs = new Date(d.id.slice(0, 10) + "T00:00:00").getTime();
+      return isFinite(dayMs) ? dayMs >= cutoffMs : true;
+    })
+    .sort((a, b) => b.id.localeCompare(a.id));
+
+  const completedList: string[] = [];
+  const pendingList: string[] = [];
+  for (const d of withinMonth) {
+    for (const t of d.tasks) {
+      const text = t.text.trim();
+      if (!text) continue;
+      const line = `- [${d.id.slice(0, 10)}] ${text.slice(0, MAX_TASK_TEXT_LEN)}`;
+      if (t.completed) {
+        if (completedList.length < MAX_ACTIVITY_SAMPLE) completedList.push(line);
+      } else {
+        if (pendingList.length < MAX_ACTIVITY_SAMPLE) pendingList.push(line);
+      }
+    }
+  }
+
+  const completedCount = withinMonth.reduce((s, d) => s + d.tasks.filter((t) => t.completed && t.text.trim()).length, 0);
+  const pendingCount = withinMonth.reduce((s, d) => s + d.tasks.filter((t) => !t.completed && t.text.trim()).length, 0);
 
   return [
     "Você é um coach de produtividade brasileiro dentro do app Daily Post-it.",
     "Você conversa em um único chat contínuo com o usuário sobre o desempenho dele.",
-    "Você recebe métricas derivadas E uma amostra das tarefas concluídas recentemente (dados reais do usuário).",
+    "Você recebe métricas derivadas E a lista de tarefas do último mês (concluídas E pendentes) — dados reais do usuário.",
     "",
     "Seu papel:",
-    "- Analisar em quais atividades o usuário tem dedicado mais tempo (baseado nas tarefas concluídas).",
+    "- Analisar em quais atividades o usuário tem dedicado mais tempo (tarefas concluídas).",
+    "- Identificar padrões de sucesso E de fracasso: tarefas pendentes/adiadas revelam o que o usuário evita ou não consegue manter.",
     "- Avaliar consistência e ritmo em relação às metas de longo prazo cadastradas.",
     "- Sugerir quais deveriam ser as tarefas prioritárias para alcançar cada meta.",
     "- Comentar constância (streak, taxa de conclusão) de forma honesta e motivadora, sem clichês.",
@@ -85,12 +106,16 @@ export function buildSystemPrompt(days: Day[], goals: Goal[], pointsBalance: num
     `Melhor dia até hoje: ${stats.bestDay?.count ?? 0} tarefas concluídas`,
     `Últimos 7 dias (concluídas por dia): ${weeklyText}`,
     `Saldo de pontos: ${pointsBalance}`,
+    `No último mês: ${completedCount} tarefas concluídas, ${pendingCount} pendentes/não concluídas`,
     "",
     "Metas ativas:",
     goalsText,
     "",
-    `Amostra de tarefas concluídas recentemente (até ${MAX_ACTIVITY_SAMPLE}, mais novas primeiro):`,
-    recentCompleted || "(nenhuma tarefa concluída ainda)",
+    `Tarefas CONCLUÍDAS no último mês (até ${MAX_ACTIVITY_SAMPLE}, mais novas primeiro):`,
+    completedList.join("\n") || "(nenhuma tarefa concluída no último mês)",
+    "",
+    `Tarefas PENDENTES/não concluídas no último mês (até ${MAX_ACTIVITY_SAMPLE}) — úteis pra avaliar fracassos e o que o usuário adia:`,
+    pendingList.join("\n") || "(nenhuma tarefa pendente no último mês)",
   ].join("\n");
 }
 
