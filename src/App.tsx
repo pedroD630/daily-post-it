@@ -156,6 +156,11 @@ export default function App() {
     return () => mql.removeEventListener("change", apply);
   }, [settings.theme]);
 
+  // Liquid Glass: toggle the root class that intensifies frosted surfaces.
+  useEffect(() => {
+    document.documentElement.classList.toggle("liquid-glass", !!settings.liquidGlass);
+  }, [settings.liquidGlass]);
+
   // Global keyboard shortcut: Ctrl/Cmd+K toggles the command palette
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -1141,6 +1146,7 @@ export default function App() {
           setTheme: (theme: ThemeMode) => void applyQuickSettings({ theme }),
           setColorPalette: (paletteId: string) => void applyQuickSettings({ paletteId }),
           togglePaperTexture: () => void applyQuickSettings({ paperTexture: !settings.paperTexture }),
+          toggleLiquidGlass: () => void applyQuickSettings({ liquidGlass: !settings.liquidGlass }),
           jumpToDay: handleJumpToDay,
           forceSync: () => {
             const user = auth.currentUser;

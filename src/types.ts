@@ -51,6 +51,7 @@ export interface Settings {
   paperTexture: boolean; // whether to render the realistic shader-based paper texture
   theme: ThemeMode;      // app-wide color scheme preference
   geminiApiKey?: string; // BYOK for AI Insights (fallback when Chrome Built-in AI not available)
+  liquidGlass?: boolean; // Apple-style frosted translucent surfaces
 }
 
 export type AppView = "main" | "history" | "settings" | "profile" | "shop" | "insights" | "goals";

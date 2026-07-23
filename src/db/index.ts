@@ -21,7 +21,8 @@ export const DEFAULT_SETTINGS: Settings = {
   paletteId: "pastel",
   paperTexture: true,
   theme: "system",
-  geminiApiKey: undefined
+  geminiApiKey: undefined,
+  liquidGlass: false
 };
 
 let dbPromise: Promise<IDBDatabase> | null = null;
