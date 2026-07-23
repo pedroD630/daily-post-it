@@ -1,0 +1,15 @@
+# Supabase project config.
+# Only the pieces this repo needs are declared here.
+
+project_id = "ofnzluyaqntthrvtpzia"
+
+# The ai-insight Edge Function must NOT use the gateway JWT check: the
+# Supabase gateway only accepts the project's own HS256 tokens and rejects
+# the Firebase RS256 ID token (UNAUTHORIZED_ASYMMETRIC_JWT). The function
+# verifies the Firebase token itself (see functions/ai-insight/index.ts),
+# so anonymous callers are still blocked.
+#
+# Declaring it here makes `supabase functions deploy ai-insight` honor it
+# without needing the --no-verify-jwt flag each time.
+[functions.ai-insight]
+verify_jwt = false

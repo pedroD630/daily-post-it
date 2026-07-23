@@ -43,14 +43,27 @@ supabase secrets set ALLOWED_ORIGINS="https://daily-post-it.vercel.app,http://lo
 ```
 Sem essa var, aceita `*` (bom pra dev, revisar antes de produção).
 
-### 2. Deploy da função
+### 2. Deploy da função — COM `--no-verify-jwt`
 ```bash
-supabase functions deploy ai-insight
+supabase functions deploy ai-insight --no-verify-jwt
 ```
 
-O `--no-verify-jwt` **NÃO** é usado — queremos que o Supabase valide o JWT
-do Firebase automaticamente (via Third-Party Auth já configurado) antes de
-a função rodar. Isso rejeita qualquer chamada anônima.
+⚠️ **O `--no-verify-jwt` é OBRIGATÓRIO.** O gateway do Supabase, com
+`verify_jwt` ligado (default), só aceita tokens simétricos (HS256) emitidos
+pelo próprio Supabase, e REJEITA o ID token do Firebase (RS256) com o erro
+`UNAUTHORIZED_ASYMMETRIC_JWT` (401). O Third-Party Auth valida o token do
+Firebase na camada de banco/RLS, mas NÃO na camada de Edge Functions.
+
+O `--no-verify-jwt` desliga só a checagem do GATEWAY. A função continua
+protegida: ela verifica o ID token do Firebase por conta própria (assinatura
+RS256 contra a JWKS pública do Google, `iss` e `aud`) logo no início — chamada
+sem token válido recebe 401. Ver `verifyFirebaseToken()` em `index.ts`.
+
+> (Opcional) Se o project id do Firebase for diferente do default
+> `gen-lang-client-0678919214`, configure:
+> ```bash
+> supabase secrets set FIREBASE_PROJECT_ID=seu-project-id
+> ```
 
 ### 3. Ativar no cliente (Vercel)
 
