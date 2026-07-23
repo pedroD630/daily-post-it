@@ -15,29 +15,49 @@ import { Lightbulb, BarChart3 } from "lucide-react";
 import { Day, Goal } from "../types";
 import { dailyActionsForGoal } from "../utils/goalFrequency";
 import { generateSuggestions } from "../utils/goalSuggestions";
+import AIChatPanel from "./AIChatPanel";
 
 interface GoalsInsightsPanelProps {
   goals: Goal[];        // include archived for historical charts
   allDays: Day[];
+  pointsBalance: number;
+  geminiApiKey?: string;
 }
 
-export default function GoalsInsightsPanel({ goals, allDays }: GoalsInsightsPanelProps) {
+export default function GoalsInsightsPanel({ goals, allDays, pointsBalance, geminiApiKey }: GoalsInsightsPanelProps) {
   const suggestions = useMemo(
     () => generateSuggestions(goals, allDays),
     [goals, allDays]
   );
 
+  // AI Coach chat lives at the top of this tab so it's reachable from the
+  // Goals (Target) navbar icon. Rendered before the empty-state early return
+  // so it shows even for users who haven't created any goals yet.
+  const aiCoach = (
+    <AIChatPanel
+      days={allDays}
+      goals={goals}
+      pointsBalance={pointsBalance}
+      geminiApiKey={geminiApiKey}
+    />
+  );
+
   if (goals.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center text-center py-12 px-4 opacity-70">
-        <BarChart3 className="w-8 h-8 text-slate-400 mb-2" />
-        <p className="text-sm text-slate-500">No goals yet. Add one in the Goals tab to start tracking.</p>
+      <div className="flex flex-col gap-4">
+        {aiCoach}
+        <div className="flex flex-col items-center justify-center text-center py-12 px-4 opacity-70">
+          <BarChart3 className="w-8 h-8 text-slate-400 mb-2" />
+          <p className="text-sm text-slate-500">No goals yet. Add one in the Goals tab to start tracking.</p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-4">
+      {aiCoach}
+
       {/* Suggestions */}
       {suggestions.length > 0 && (
         <section
