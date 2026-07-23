@@ -19,10 +19,51 @@
  *   3. On Vercel: set VITE_AI_PROXY_ENABLED=true
  *   4. Redeploy the frontend.
  *
+ * AUTH: this function MUST be deployed WITHOUT the gateway JWT check:
+ *   supabase functions deploy ai-insight --no-verify-jwt
+ * because Supabase's gateway `verify_jwt` only accepts the project's own
+ * symmetric (HS256) tokens and rejects the Firebase RS256 ID token with
+ * `UNAUTHORIZED_ASYMMETRIC_JWT`. Instead we verify the Firebase ID token
+ * ourselves below, against Google's public JWKS. `--no-verify-jwt` only
+ * disables the GATEWAY check; our in-code check still blocks anonymous
+ * callers.
+ *
  * License: SPDX-License-Identifier: Apache-2.0
  */
 
 // deno-lint-ignore-file no-explicit-any
+
+import { createRemoteJWKSet, jwtVerify } from "https://esm.sh/jose@5.9.6";
+
+// Firebase project id — must match the app's firebaseConfig.projectId.
+const FIREBASE_PROJECT_ID = Deno.env.get("FIREBASE_PROJECT_ID") ?? "gen-lang-client-0678919214";
+
+// Google publishes the Firebase secure-token signing keys as JWKS here.
+// createRemoteJWKSet caches + rotates them automatically.
+const FIREBASE_JWKS = createRemoteJWKSet(
+  new URL("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com"),
+);
+
+/**
+ * Verify a Firebase ID token. Returns the subject (uid) on success, or null
+ * if the token is missing/invalid/expired. Checks signature (RS256 against
+ * Google's JWKS), issuer and audience.
+ */
+async function verifyFirebaseToken(authHeader: string | null): Promise<string | null> {
+  if (!authHeader?.startsWith("Bearer ")) return null;
+  const token = authHeader.slice("Bearer ".length).trim();
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, FIREBASE_JWKS, {
+      issuer: `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`,
+      audience: FIREBASE_PROJECT_ID,
+    });
+    return typeof payload.sub === "string" ? payload.sub : null;
+  } catch (err) {
+    console.warn("Firebase token verification failed:", String(err).slice(0, 120));
+    return null;
+  }
+}
 
 // Explicit CORS reply so mobile browsers (and any custom origin) can hit
 // the function. The origin allow-list is provided via env var so the same
@@ -59,6 +100,17 @@ Deno.serve(async (req) => {
       status: 405,
       headers: { ...corsHeaders(origin), "Content-Type": "application/json" },
     });
+  }
+
+  // Authenticate: verify the caller's Firebase ID token ourselves (the
+  // gateway can't, hence --no-verify-jwt). Blocks anonymous abuse of the
+  // paid Gemini key.
+  const uid = await verifyFirebaseToken(req.headers.get("authorization"));
+  if (!uid) {
+    return new Response(
+      JSON.stringify({ error: "Não autenticado. Faça login novamente." }),
+      { status: 401, headers: { ...corsHeaders(origin), "Content-Type": "application/json" } },
+    );
   }
 
   const apiKey = Deno.env.get("GEMINI_API_KEY");
