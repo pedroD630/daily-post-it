@@ -74,3 +74,22 @@ export interface Goal {
   archived: boolean;             // soft-delete; archived hides from active list
   updatedAt?: number;            // last-write-wins for cross-device merge
 }
+
+/**
+ * A milestone toward a goal. Usually proposed by the AI coach during a chat
+ * (e.g. "save R$500/month" toward a "R$20k invested" goal) and accepted by
+ * the user, but can be user-created too. When achieved, the coach can
+ * propose an evolution (the next checkpoint).
+ */
+export interface Checkpoint {
+  id: string;                    // crypto.randomUUID()
+  goalId: string;                // the goal this milestone belongs to
+  title: string;                 // e.g. "Guardar R$500 por mês"
+  description?: string;          // optional detail / rationale
+  achieved: boolean;
+  achievedAt: number | null;
+  createdAt: number;
+  order: number;                 // sort within a goal
+  source: "ai" | "user";         // who created it
+  updatedAt?: number;            // last-write-wins for cross-device merge
+}

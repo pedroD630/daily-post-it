@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Day, Task, Settings, AppView, ThemeMode, Goal } from "./types";
-import { getSettings, saveSettings, getDay, saveDay, getAllDays, getBalance, getBalanceMeta, applyPointsDelta, setBalance, getAllGoals, saveGoal, deleteGoalLocal } from "./db";
+import { getSettings, saveSettings, getDay, saveDay, getAllDays, getBalance, getBalanceMeta, applyPointsDelta, setBalance, getAllGoals, saveGoal, deleteGoalLocal, getAllCheckpoints, saveCheckpoint, deleteCheckpointLocal } from "./db";
 import { DEFAULT_SETTINGS } from "./db";
 import Navbar from "./components/Navbar";
 import PostItCard from "./components/PostItCard";
@@ -21,7 +21,9 @@ import { getPaletteById } from "./constants/palettes";
 import { pointValue, computeTaskPoints } from "./utils/points";
 import { computeStreak } from "./utils/insights";
 import { startPenaltyScheduler, checkMissedPenalty } from "./utils/penaltyScheduler";
-import { syncPointsBalanceToSupabase, pullPointsBalanceFromSupabase, syncGoalToSupabase, deleteGoalFromSupabase, pullAllGoalsFromSupabase } from "./db/supabase";
+import { syncPointsBalanceToSupabase, pullPointsBalanceFromSupabase, syncGoalToSupabase, deleteGoalFromSupabase, pullAllGoalsFromSupabase, syncCheckpointToSupabase, deleteCheckpointFromSupabase, pullAllCheckpointsFromSupabase } from "./db/supabase";
+import { Checkpoint } from "./types";
+import { ParsedCheckpoint } from "./utils/checkpointParser";
 import { Reward } from "./constants/rewards";
 import { Trash2, Plus, AlertCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -113,6 +115,7 @@ export default function App() {
 
   // Long-term goals
   const [goals, setGoals] = useState<Goal[]>([]);
+  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
 
   // Command palette + cross-view navigation helpers
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -235,6 +238,9 @@ export default function App() {
       // Load long-term goals
       const allGoals = await getAllGoals();
       setGoals(allGoals);
+
+      const allCheckpoints = await getAllCheckpoints();
+      setCheckpoints(allCheckpoints);
     } catch (err) {
       console.error("Failed to load initial data from IndexedDB:", err);
     }
@@ -366,6 +372,19 @@ export default function App() {
           }
         } catch (e) {
           console.warn("Goals pull/merge failed:", e);
+        }
+        try {
+          // Pull checkpoints — same last-write-wins by updatedAt
+          const cloudCps = await pullAllCheckpointsFromSupabase(uid);
+          const localCps = await getAllCheckpoints();
+          for (const cloudCp of cloudCps) {
+            const localCp = localCps.find((c) => c.id === cloudCp.id);
+            if ((cloudCp.updatedAt ?? 0) >= (localCp?.updatedAt ?? 0)) {
+              await saveCheckpoint(cloudCp);
+            }
+          }
+        } catch (e) {
+          console.warn("Checkpoints pull/merge failed:", e);
         }
       }
       await loadInitialData();
@@ -853,6 +872,67 @@ export default function App() {
     }
   };
 
+  // --- Checkpoints handlers ----------------------------------------------
+  const persistCheckpoint = async (cp: Checkpoint) => {
+    setCheckpoints((prev) => {
+      const idx = prev.findIndex((c) => c.id === cp.id);
+      if (idx === -1) return [...prev, cp];
+      const next = prev.slice();
+      next[idx] = cp;
+      return next;
+    });
+    await saveCheckpoint(cp);
+    if (auth.currentUser) {
+      void syncCheckpointToSupabase(cp, auth.currentUser.uid);
+    }
+  };
+
+  // Accept an AI-proposed checkpoint. Resolve the goal by title (exact match
+  // first, then case-insensitive contains). Silently ignore if no goal matches.
+  const handleAddCheckpoint = async (parsed: ParsedCheckpoint) => {
+    const active = goals.filter((g) => !g.archived);
+    const norm = (s: string) => s.trim().toLowerCase();
+    const target =
+      active.find((g) => norm(g.title) === norm(parsed.goalTitle)) ||
+      active.find((g) => norm(g.title).includes(norm(parsed.goalTitle)) || norm(parsed.goalTitle).includes(norm(g.title)));
+    if (!target) {
+      console.warn("No goal matched checkpoint suggestion:", parsed.goalTitle);
+      return;
+    }
+    const orderBase = checkpoints.filter((c) => c.goalId === target.id).length;
+    const cp: Checkpoint = {
+      id: crypto.randomUUID(),
+      goalId: target.id,
+      title: parsed.title,
+      description: parsed.description,
+      achieved: false,
+      achievedAt: null,
+      createdAt: Date.now(),
+      order: orderBase,
+      source: "ai",
+      updatedAt: Date.now(),
+    };
+    await persistCheckpoint(cp);
+  };
+
+  const handleToggleCheckpoint = async (cp: Checkpoint) => {
+    const next: Checkpoint = {
+      ...cp,
+      achieved: !cp.achieved,
+      achievedAt: !cp.achieved ? Date.now() : null,
+      updatedAt: Date.now(),
+    };
+    await persistCheckpoint(next);
+  };
+
+  const handleDeleteCheckpoint = async (id: string) => {
+    setCheckpoints((prev) => prev.filter((c) => c.id !== id));
+    await deleteCheckpointLocal(id);
+    if (auth.currentUser) {
+      void deleteCheckpointFromSupabase(id, auth.currentUser.uid);
+    }
+  };
+
   // Quick mutations triggered from the command palette — persist immediately
   const applyQuickSettings = async (patch: Partial<Settings>) => {
     const next = { ...settings, ...patch };
@@ -1211,6 +1291,7 @@ export default function App() {
                 pointsBalance={displayBalance}
                 goals={goals}
                 geminiApiKey={settings.geminiApiKey}
+                onAddCheckpoint={handleAddCheckpoint}
               />
             )}
 
@@ -1248,9 +1329,13 @@ export default function App() {
                 allDays={todayDay ? [...allDaysList.filter((d) => d.id !== todayDay.id), todayDay] : allDaysList}
                 pointsBalance={displayBalance}
                 geminiApiKey={settings.geminiApiKey}
+                checkpoints={checkpoints}
                 onSaveGoal={handleSaveGoal}
                 onDeleteGoal={handleDeleteGoal}
                 onArchiveGoal={handleArchiveGoal}
+                onAddCheckpoint={handleAddCheckpoint}
+                onToggleCheckpoint={handleToggleCheckpoint}
+                onDeleteCheckpoint={handleDeleteCheckpoint}
               />
             )}
           </motion.div>

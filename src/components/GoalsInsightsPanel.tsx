@@ -16,15 +16,19 @@ import { Day, Goal } from "../types";
 import { dailyActionsForGoal } from "../utils/goalFrequency";
 import { generateSuggestions } from "../utils/goalSuggestions";
 import AIChatPanel from "./AIChatPanel";
+import { ParsedCheckpoint } from "../utils/checkpointParser";
 
 interface GoalsInsightsPanelProps {
   goals: Goal[];        // include archived for historical charts
   allDays: Day[];
   pointsBalance: number;
   geminiApiKey?: string;
+  onAddCheckpoint?: (cp: ParsedCheckpoint) => Promise<void> | void;
+  seedMessage?: string;
+  onSeedConsumed?: () => void;
 }
 
-export default function GoalsInsightsPanel({ goals, allDays, pointsBalance, geminiApiKey }: GoalsInsightsPanelProps) {
+export default function GoalsInsightsPanel({ goals, allDays, pointsBalance, geminiApiKey, onAddCheckpoint, seedMessage, onSeedConsumed }: GoalsInsightsPanelProps) {
   const suggestions = useMemo(
     () => generateSuggestions(goals, allDays),
     [goals, allDays]
@@ -39,6 +43,9 @@ export default function GoalsInsightsPanel({ goals, allDays, pointsBalance, gemi
       goals={goals}
       pointsBalance={pointsBalance}
       geminiApiKey={geminiApiKey}
+      onAddCheckpoint={onAddCheckpoint}
+      seedMessage={seedMessage}
+      onSeedConsumed={onSeedConsumed}
     />
   );
 
