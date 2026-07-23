@@ -1239,6 +1239,8 @@ export default function App() {
               <GoalsView
                 goals={goals}
                 allDays={todayDay ? [...allDaysList.filter((d) => d.id !== todayDay.id), todayDay] : allDaysList}
+                pointsBalance={displayBalance}
+                geminiApiKey={settings.geminiApiKey}
                 onSaveGoal={handleSaveGoal}
                 onDeleteGoal={handleDeleteGoal}
                 onArchiveGoal={handleArchiveGoal}

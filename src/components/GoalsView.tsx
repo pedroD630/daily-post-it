@@ -18,6 +18,8 @@ import GoalsInsightsPanel from "./GoalsInsightsPanel";
 interface GoalsViewProps {
   goals: Goal[];
   allDays: Day[];
+  pointsBalance: number;
+  geminiApiKey?: string;
   onSaveGoal: (goal: Goal) => Promise<void> | void;
   onDeleteGoal: (id: string) => Promise<void> | void;
   onArchiveGoal: (id: string, archived: boolean) => Promise<void> | void;
@@ -28,7 +30,7 @@ type Tab = "list" | "insights";
 const MAX_ACTIVE_GOALS = 12;
 
 export default function GoalsView({
-  goals, allDays, onSaveGoal, onDeleteGoal, onArchiveGoal,
+  goals, allDays, pointsBalance, geminiApiKey, onSaveGoal, onDeleteGoal, onArchiveGoal,
 }: GoalsViewProps) {
   const [tab, setTab] = useState<Tab>("list");
   const [editing, setEditing] = useState<Goal | null>(null);
@@ -153,7 +155,7 @@ export default function GoalsView({
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.18 }}
           >
-            <GoalsInsightsPanel goals={goals} allDays={allDays} />
+            <GoalsInsightsPanel goals={goals} allDays={allDays} pointsBalance={pointsBalance} geminiApiKey={geminiApiKey} />
           </motion.div>
         )}
       </AnimatePresence>

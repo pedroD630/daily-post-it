@@ -37,22 +37,30 @@ export default function AIChatPanel({ days, goals, pointsBalance, geminiApiKey }
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Detect provider once (re-checks if the BYOK key changes in Settings).
+  // Safety timeout so a hung dynamic import / auth probe can't keep the
+  // panel invisible forever.
   useEffect(() => {
     let alive = true;
     setDetecting(true);
+    const safety = setTimeout(() => { if (alive) setDetecting(false); }, 4000);
     Promise.all([detectBestProvider(geminiApiKey), probeProviders(geminiApiKey)])
       .then(([p, s]) => { if (alive) { setProvider(p); setStatus(s); } })
-      .finally(() => { if (alive) setDetecting(false); });
-    return () => { alive = false; };
+      .catch((e) => console.warn("AI provider detection failed:", e))
+      .finally(() => { if (alive) { clearTimeout(safety); setDetecting(false); } });
+    return () => { alive = false; clearTimeout(safety); };
   }, [geminiApiKey]);
 
-  // Load persisted conversation once.
+  // Load persisted conversation once. A safety timeout guarantees the panel
+  // renders even if IndexedDB hangs (e.g. a blocked v3→v4 upgrade held open
+  // by another tab) — better to show an empty chat than to silently vanish.
   useEffect(() => {
     let alive = true;
+    const safety = setTimeout(() => { if (alive) setHydrated(true); }, 3000);
     getAIChatHistory()
       .then((history) => { if (alive) setMessages(history); })
-      .finally(() => { if (alive) setHydrated(true); });
-    return () => { alive = false; };
+      .catch((e) => console.warn("AI chat history load failed:", e))
+      .finally(() => { if (alive) { clearTimeout(safety); setHydrated(true); } });
+    return () => { alive = false; clearTimeout(safety); };
   }, []);
 
   // Auto-scroll to the latest message.
