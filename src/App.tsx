@@ -9,6 +9,7 @@ import { getSettings, saveSettings, getDay, saveDay, getAllDays, getBalance, get
 import { DEFAULT_SETTINGS } from "./db";
 import Navbar from "./components/Navbar";
 import PostItCard from "./components/PostItCard";
+import PenColorPicker from "./components/PenColorPicker";
 import HistoryView from "./components/HistoryView";
 import SettingsView from "./components/SettingsView";
 import ProfileView from "./components/ProfileView";
@@ -1172,6 +1173,12 @@ export default function App() {
                   <Trash2 className="w-4 h-4" />
                   <span>Crumple page</span>
                 </button>
+
+                {/* Inline pen-color picker (brush) — sits above the + FAB */}
+                <PenColorPicker
+                  value={settings.penColor}
+                  onChange={(hex) => void applyQuickSettings({ penColor: hex })}
+                />
 
                 {/* Floating Action '+' Button right-bottom */}
                 <button
