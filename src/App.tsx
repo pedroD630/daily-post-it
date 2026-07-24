@@ -21,7 +21,7 @@ import { getPaletteById } from "./constants/palettes";
 import { pointValue, computeTaskPoints } from "./utils/points";
 import { computeStreak } from "./utils/insights";
 import { startPenaltyScheduler, checkMissedPenalty } from "./utils/penaltyScheduler";
-import { syncPointsBalanceToSupabase, pullPointsBalanceFromSupabase, syncGoalToSupabase, deleteGoalFromSupabase, pullAllGoalsFromSupabase, syncCheckpointToSupabase, deleteCheckpointFromSupabase, pullAllCheckpointsFromSupabase } from "./db/supabase";
+import { syncPointsBalanceToSupabase, pullPointsBalanceFromSupabase, syncGoalToSupabase, deleteGoalFromSupabase, pullAllGoalsFromSupabase, syncCheckpointToSupabase, pullAllCheckpointsFromSupabase } from "./db/supabase";
 import { Checkpoint } from "./types";
 import { ParsedCheckpoint } from "./utils/checkpointParser";
 import { Reward } from "./constants/rewards";
@@ -245,7 +245,9 @@ export default function App() {
       setGoals(allGoals);
 
       const allCheckpoints = await getAllCheckpoints();
-      setCheckpoints(allCheckpoints);
+      // Tombstoned (soft-deleted) checkpoints stay in IDB for sync but never
+      // show in the UI.
+      setCheckpoints(allCheckpoints.filter((c) => !c.deleted));
     } catch (err) {
       console.error("Failed to load initial data from IndexedDB:", err);
     }
@@ -379,13 +381,28 @@ export default function App() {
           console.warn("Goals pull/merge failed:", e);
         }
         try {
-          // Pull checkpoints — same last-write-wins by updatedAt
+          // Bidirectional checkpoint merge so AI-created milestones reliably
+          // sync across devices, even if the original push was interrupted
+          // (offline, request failure). Last-write-wins by updatedAt:
+          //   - cloud newer-or-equal & different  -> write cloud to local
+          //   - local newer OR missing in cloud    -> push local to cloud
           const cloudCps = await pullAllCheckpointsFromSupabase(uid);
           const localCps = await getAllCheckpoints();
+          const cloudById = new Map(cloudCps.map((c) => [c.id, c]));
+          const localById = new Map(localCps.map((c) => [c.id, c]));
+
+          // Cloud -> local
           for (const cloudCp of cloudCps) {
-            const localCp = localCps.find((c) => c.id === cloudCp.id);
+            const localCp = localById.get(cloudCp.id);
             if ((cloudCp.updatedAt ?? 0) >= (localCp?.updatedAt ?? 0)) {
               await saveCheckpoint(cloudCp);
+            }
+          }
+          // Local -> cloud (re-push anything cloud is missing or has staler)
+          for (const localCp of localCps) {
+            const cloudCp = cloudById.get(localCp.id);
+            if (!cloudCp || (localCp.updatedAt ?? 0) > (cloudCp.updatedAt ?? 0)) {
+              void syncCheckpointToSupabase(localCp, uid);
             }
           }
         } catch (e) {
@@ -931,10 +948,19 @@ export default function App() {
   };
 
   const handleDeleteCheckpoint = async (id: string) => {
+    const existing = checkpoints.find((c) => c.id === id);
     setCheckpoints((prev) => prev.filter((c) => c.id !== id));
-    await deleteCheckpointLocal(id);
-    if (auth.currentUser) {
-      void deleteCheckpointFromSupabase(id, auth.currentUser.uid);
+    if (existing) {
+      // Soft delete: keep a tombstone (deleted=true) in IDB + cloud so the
+      // deletion propagates to other devices and can't be resurrected by
+      // the bidirectional merge's re-push.
+      const tombstone: Checkpoint = { ...existing, deleted: true, updatedAt: Date.now() };
+      await saveCheckpoint(tombstone);
+      if (auth.currentUser) {
+        void syncCheckpointToSupabase(tombstone, auth.currentUser.uid);
+      }
+    } else {
+      await deleteCheckpointLocal(id);
     }
   };
 

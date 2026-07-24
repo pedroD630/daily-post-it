@@ -93,4 +93,5 @@ export interface Checkpoint {
   order: number;                 // sort within a goal
   source: "ai" | "user";         // who created it
   updatedAt?: number;            // last-write-wins for cross-device merge
+  deleted?: boolean;             // tombstone — soft delete so deletions sync
 }

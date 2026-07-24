@@ -372,7 +372,7 @@ function isMissingCheckpointsTable(err: any): boolean {
 export async function syncCheckpointToSupabase(cp: Checkpoint, userId: string): Promise<boolean> {
   if (!supabase) return false;
   try {
-    const { error } = await supabase.from("checkpoints").upsert({
+    const row: Record<string, unknown> = {
       id: cp.id,
       user_id: userId,
       goal_id: cp.goalId,
@@ -383,8 +383,16 @@ export async function syncCheckpointToSupabase(cp: Checkpoint, userId: string): 
       created_at: cp.createdAt,
       sort_order: cp.order,
       source: cp.source,
-      updated_at: cp.updatedAt ?? Date.now()
-    }, { onConflict: "id" });
+      updated_at: cp.updatedAt ?? Date.now(),
+      deleted: cp.deleted ?? false
+    };
+    let { error } = await supabase.from("checkpoints").upsert(row, { onConflict: "id" });
+    // Fallback if the `deleted` column migration (008) hasn't been run yet.
+    if (error && (error.code === "PGRST204" || /deleted/i.test(error.message || ""))) {
+      console.warn("Supabase 'deleted' column missing — run migration 008_checkpoints_deleted.sql. Syncing without it.");
+      delete row.deleted;
+      ({ error } = await supabase.from("checkpoints").upsert(row, { onConflict: "id" }));
+    }
     if (error) {
       if (isMissingCheckpointsTable(error)) {
         console.warn("Supabase 'checkpoints' table missing — run migration 007_checkpoints.sql.");
@@ -433,6 +441,7 @@ export async function pullAllCheckpointsFromSupabase(userId: string): Promise<Ch
       order: Number(c.sort_order ?? 0),
       source: (c.source === "user" ? "user" : "ai"),
       updatedAt: c.updated_at ? Number(c.updated_at) : 0,
+      deleted: !!c.deleted,
     }));
   } catch (err) {
     console.error("Failed to pull checkpoints from Supabase:", err);
