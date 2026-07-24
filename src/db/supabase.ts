@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { getAuth } from "firebase/auth";
-import { Checkpoint, Day, Goal, Task } from "../types";
+import { Checkpoint, Day, Goal, Habit, Task } from "../types";
 
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || "";
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || "";
@@ -445,6 +445,73 @@ export async function pullAllCheckpointsFromSupabase(userId: string): Promise<Ch
     }));
   } catch (err) {
     console.error("Failed to pull checkpoints from Supabase:", err);
+    return [];
+  }
+}
+
+/* -------------------------------------------------------------------------
+ * Habits — quit-habit streak tracker. Soft-delete via `deleted` tombstone,
+ * same resilient no-op-if-table-missing pattern as checkpoints.
+ * ----------------------------------------------------------------------- */
+
+function isMissingHabitsTable(err: any): boolean {
+  if (!err) return false;
+  const code = err.code || "";
+  const msg = (err.message || "").toLowerCase();
+  return code === "PGRST205" || code === "42P01" || msg.includes("habits");
+}
+
+export async function syncHabitToSupabase(habit: Habit, userId: string): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.from("habits").upsert({
+      id: habit.id,
+      user_id: userId,
+      name: habit.name,
+      icon: habit.icon,
+      last_relapse_date: habit.lastRelapseDate,
+      created_at: habit.createdAt,
+      active: habit.active,
+      updated_at: habit.updatedAt ?? Date.now(),
+      deleted: habit.deleted ?? false
+    }, { onConflict: "id" });
+    if (error) {
+      if (isMissingHabitsTable(error)) {
+        console.warn("Supabase 'habits' table missing — run migration 009_habits.sql.");
+        return false;
+      }
+      throw error;
+    }
+    return true;
+  } catch (err) {
+    console.error("Supabase habits sync error:", err);
+    return false;
+  }
+}
+
+export async function pullAllHabitsFromSupabase(userId: string): Promise<Habit[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase.from("habits").select("*").eq("user_id", userId);
+    if (error) {
+      if (isMissingHabitsTable(error)) {
+        console.warn("Supabase 'habits' table missing — run migration 009_habits.sql.");
+        return [];
+      }
+      throw error;
+    }
+    return (data || []).map((h: any): Habit => ({
+      id: h.id,
+      name: h.name,
+      icon: h.icon || "🔒",
+      lastRelapseDate: h.last_relapse_date,
+      createdAt: Number(h.created_at || Date.now()),
+      active: h.active === false ? false : true,
+      updatedAt: h.updated_at ? Number(h.updated_at) : 0,
+      deleted: !!h.deleted,
+    }));
+  } catch (err) {
+    console.error("Failed to pull habits from Supabase:", err);
     return [];
   }
 }

@@ -3,14 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Checkpoint, Day, Goal, Settings } from "../types";
+import { Checkpoint, Day, Goal, Habit, Settings } from "../types";
 
 const DB_NAME = "postit_db";
 // v2: introduced "points_ledger" store
 // v3: introduced "goals" store
 // v4: introduced "ai_chat" store (single AI Coach conversation)
 // v5: introduced "checkpoints" store (AI-proposed goal milestones)
-const DB_VERSION = 5;
+// v6: introduced "habits" store (quit-habit streak tracker)
+const DB_VERSION = 6;
 const POINTS_BALANCE_KEY = "balance";
 const AI_CHAT_KEY = "default";
 
@@ -65,6 +66,10 @@ export function initDB(): Promise<IDBDatabase> {
       // v5: AI-proposed goal milestones
       if (!db.objectStoreNames.contains("checkpoints")) {
         db.createObjectStore("checkpoints", { keyPath: "id" });
+      }
+      // v6: quit-habit streak tracker
+      if (!db.objectStoreNames.contains("habits")) {
+        db.createObjectStore("habits", { keyPath: "id" });
       }
     };
   });
@@ -373,6 +378,40 @@ export async function deleteCheckpointLocal(id: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction("checkpoints", "readwrite");
     const req = tx.objectStore("checkpoints").delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/* -------------------------------------------------------------------------
+ * Habits — quit-habit streak tracker.
+ * ----------------------------------------------------------------------- */
+
+export async function getAllHabits(): Promise<Habit[]> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("habits", "readonly");
+    const req = tx.objectStore("habits").getAll();
+    req.onsuccess = () => resolve((req.result as Habit[]) || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function saveHabit(habit: Habit): Promise<void> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("habits", "readwrite");
+    const req = tx.objectStore("habits").put(habit);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function deleteHabitLocal(id: string): Promise<void> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("habits", "readwrite");
+    const req = tx.objectStore("habits").delete(id);
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
   });

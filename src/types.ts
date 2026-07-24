@@ -54,7 +54,22 @@ export interface Settings {
   liquidGlass?: boolean; // Apple-style frosted translucent surfaces
 }
 
-export type AppView = "main" | "history" | "settings" | "profile" | "shop" | "insights" | "goals";
+export type AppView = "main" | "history" | "settings" | "profile" | "shop" | "insights" | "goals" | "streak";
+
+/**
+ * A habit the user wants to quit. The streak (days clean) is always derived
+ * at runtime from lastRelapseDate — never stored as a counter.
+ */
+export interface Habit {
+  id: string;                  // crypto.randomUUID()
+  name: string;
+  icon: string;                // emoji (defaults to 🔒)
+  lastRelapseDate: string;     // "YYYY-MM-DD" — base for streak calc
+  createdAt: number;
+  active: boolean;             // false = archived
+  updatedAt?: number;          // last-write-wins for cross-device merge
+  deleted?: boolean;           // tombstone for soft-delete sync
+}
 
 /**
  * Long-term goal a user is tracking. Each completed task whose text matches

@@ -4,7 +4,7 @@
  */
 
 import React from "react";
-import { History, Plus, Settings, ShoppingBag, Target } from "lucide-react";
+import { History, Plus, Settings, ShoppingBag, Target, ShieldCheck } from "lucide-react";
 import { AppView } from "../types";
 
 interface NavbarProps {
@@ -47,6 +47,17 @@ export default function Navbar({ currentView, onViewChange, currentUserPhoto, on
           className={itemClass(currentView === "goals")}
         >
           <Target className="w-5 h-5" />
+        </button>
+
+        {/* Streak tracker */}
+        <button
+          id="nav-btn-streak"
+          aria-label="Streak tracker"
+          title="Streak"
+          onClick={() => onViewChange("streak")}
+          className={itemClass(currentView === "streak")}
+        >
+          <ShieldCheck className="w-5 h-5" />
         </button>
 
         {/* Center: Main View (+) */}
