@@ -18,7 +18,7 @@ import {
   Search, Plus, StickyNote, History, ShoppingBag, Settings as SettingsIcon,
   User as UserIcon, BarChart3, SunMedium, Moon, MonitorSmartphone,
   Palette as PaletteIcon, Layers, CheckCircle2, Circle, CornerDownLeft,
-  RefreshCw, Target as TargetIcon,
+  RefreshCw, Target as TargetIcon, ShieldCheck,
 } from "lucide-react";
 import { Day, AppView, ThemeMode } from "../types";
 import { PALETTES } from "../constants/palettes";
@@ -96,6 +96,7 @@ export default function CommandPalette({ open, onClose, days, todayId, ctx }: Co
       { kind: "action", id: "go-today", label: "Go to Today", icon: <StickyNote className="w-4 h-4" />, keywords: "today main post-it hoje principal", run: close(() => ctx.setView("main")) },
       { kind: "action", id: "go-history", label: "Go to History", icon: <History className="w-4 h-4" />, keywords: "history past days histórico passado", run: close(() => ctx.setView("history")) },
       { kind: "action", id: "go-goals", label: "Go to Goals", hint: "long-term targets", icon: <TargetIcon className="w-4 h-4" />, keywords: "goals targets long-term metas objetivos", run: close(() => ctx.setView("goals")) },
+      { kind: "action", id: "go-streak", label: "Go to Streak", hint: "quit-habit tracker", icon: <ShieldCheck className="w-4 h-4" />, keywords: "streak habit vicio abstinencia dias limpo sos", run: close(() => ctx.setView("streak")) },
       { kind: "action", id: "go-insights", label: "Go to Insights", hint: "streak & stats", icon: <BarChart3 className="w-4 h-4" />, keywords: "insights stats statistics streak chart estatísticas gráfico", run: close(() => ctx.setView("insights")) },
       { kind: "action", id: "go-shop", label: "Go to Reward Shop", icon: <ShoppingBag className="w-4 h-4" />, keywords: "shop rewards points loja recompensas pontos", run: close(() => ctx.setView("shop")) },
       { kind: "action", id: "go-settings", label: "Go to Settings", icon: <SettingsIcon className="w-4 h-4" />, keywords: "settings appearance configurações aparência", run: close(() => ctx.setView("settings")) },

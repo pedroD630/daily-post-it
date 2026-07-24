@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Day, Task, Settings, AppView, ThemeMode, Goal } from "./types";
-import { getSettings, saveSettings, getDay, saveDay, getAllDays, getBalance, getBalanceMeta, applyPointsDelta, setBalance, getAllGoals, saveGoal, deleteGoalLocal, getAllCheckpoints, saveCheckpoint, deleteCheckpointLocal } from "./db";
+import { getSettings, saveSettings, getDay, saveDay, getAllDays, getBalance, getBalanceMeta, applyPointsDelta, setBalance, getAllGoals, saveGoal, deleteGoalLocal, getAllCheckpoints, saveCheckpoint, deleteCheckpointLocal, getAllHabits, saveHabit } from "./db";
 import { DEFAULT_SETTINGS } from "./db";
 import Navbar from "./components/Navbar";
 import PostItCard from "./components/PostItCard";
@@ -21,9 +21,10 @@ import { getPaletteById } from "./constants/palettes";
 import { pointValue, computeTaskPoints } from "./utils/points";
 import { computeStreak } from "./utils/insights";
 import { startPenaltyScheduler, checkMissedPenalty } from "./utils/penaltyScheduler";
-import { syncPointsBalanceToSupabase, pullPointsBalanceFromSupabase, syncGoalToSupabase, deleteGoalFromSupabase, pullAllGoalsFromSupabase, syncCheckpointToSupabase, pullAllCheckpointsFromSupabase } from "./db/supabase";
-import { Checkpoint } from "./types";
+import { syncPointsBalanceToSupabase, pullPointsBalanceFromSupabase, syncGoalToSupabase, deleteGoalFromSupabase, pullAllGoalsFromSupabase, syncCheckpointToSupabase, pullAllCheckpointsFromSupabase, syncHabitToSupabase, pullAllHabitsFromSupabase } from "./db/supabase";
+import { Checkpoint, Habit } from "./types";
 import { ParsedCheckpoint } from "./utils/checkpointParser";
+import StreakView from "./components/StreakView";
 import { Reward } from "./constants/rewards";
 import { Trash2, Plus, AlertCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -116,6 +117,7 @@ export default function App() {
   // Long-term goals
   const [goals, setGoals] = useState<Goal[]>([]);
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
+  const [habits, setHabits] = useState<Habit[]>([]);
 
   // Command palette + cross-view navigation helpers
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -248,6 +250,9 @@ export default function App() {
       // Tombstoned (soft-deleted) checkpoints stay in IDB for sync but never
       // show in the UI.
       setCheckpoints(allCheckpoints.filter((c) => !c.deleted));
+
+      const allHabits = await getAllHabits();
+      setHabits(allHabits.filter((h) => !h.deleted));
     } catch (err) {
       console.error("Failed to load initial data from IndexedDB:", err);
     }
@@ -407,6 +412,27 @@ export default function App() {
           }
         } catch (e) {
           console.warn("Checkpoints pull/merge failed:", e);
+        }
+        try {
+          // Bidirectional habit merge (same pattern as checkpoints).
+          const cloudHabits = await pullAllHabitsFromSupabase(uid);
+          const localHabits = await getAllHabits();
+          const cloudHById = new Map(cloudHabits.map((h) => [h.id, h]));
+          const localHById = new Map(localHabits.map((h) => [h.id, h]));
+          for (const cloudH of cloudHabits) {
+            const localH = localHById.get(cloudH.id);
+            if ((cloudH.updatedAt ?? 0) >= (localH?.updatedAt ?? 0)) {
+              await saveHabit(cloudH);
+            }
+          }
+          for (const localH of localHabits) {
+            const cloudH = cloudHById.get(localH.id);
+            if (!cloudH || (localH.updatedAt ?? 0) > (cloudH.updatedAt ?? 0)) {
+              void syncHabitToSupabase(localH, uid);
+            }
+          }
+        } catch (e) {
+          console.warn("Habits pull/merge failed:", e);
         }
       }
       await loadInitialData();
@@ -964,6 +990,35 @@ export default function App() {
     }
   };
 
+  // --- Habits (streak tracker) handlers ----------------------------------
+  const handleSaveHabit = async (habit: Habit) => {
+    const stamped: Habit = { ...habit, updatedAt: Date.now() };
+    setHabits((prev) => {
+      const idx = prev.findIndex((h) => h.id === stamped.id);
+      if (idx === -1) return [...prev, stamped];
+      const next = prev.slice();
+      next[idx] = stamped;
+      return next;
+    });
+    await saveHabit(stamped);
+    if (auth.currentUser) {
+      void syncHabitToSupabase(stamped, auth.currentUser.uid);
+    }
+  };
+
+  const handleDeleteHabit = async (id: string) => {
+    const existing = habits.find((h) => h.id === id);
+    setHabits((prev) => prev.filter((h) => h.id !== id));
+    if (existing) {
+      // Soft-delete tombstone so deletion propagates cross-device.
+      const tombstone: Habit = { ...existing, deleted: true, updatedAt: Date.now() };
+      await saveHabit(tombstone);
+      if (auth.currentUser) {
+        void syncHabitToSupabase(tombstone, auth.currentUser.uid);
+      }
+    }
+  };
+
   // Quick mutations triggered from the command palette — persist immediately
   const applyQuickSettings = async (patch: Partial<Settings>) => {
     const next = { ...settings, ...patch };
@@ -1368,6 +1423,14 @@ export default function App() {
                 onAddCheckpoint={handleAddCheckpoint}
                 onToggleCheckpoint={handleToggleCheckpoint}
                 onDeleteCheckpoint={handleDeleteCheckpoint}
+              />
+            )}
+
+            {currentView === "streak" && (
+              <StreakView
+                habits={habits}
+                onSaveHabit={handleSaveHabit}
+                onDeleteHabit={handleDeleteHabit}
               />
             )}
           </motion.div>
