@@ -8,6 +8,39 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+/* ---------------------------------------------------------------------------
+ * Accessibility
+ * ------------------------------------------------------------------------- */
+
+/* Visible keyboard focus ring on interactive elements — only for keyboard
+ * users (`:focus-visible`), so mouse/touch don't get an outline. */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible,
+[role="switch"]:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Honor the OS "reduce motion" preference: cut animation/transition down to a
+ * blink so nothing flies, spins, or slides for users who opt out. motion/react
+ * respects this for its own animations; this covers CSS keyframe utilities
+ * (animate-spin-slow, shake, typewriter) and long transitions. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Custom CSS font helpers matching PRD specifications */
 .font-default {
   font-family: Arial, Helvetica, sans-serif;
