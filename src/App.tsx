@@ -27,6 +27,7 @@ import { ParsedCheckpoint } from "./utils/checkpointParser";
 import StreakView from "./components/StreakView";
 import SyncIndicator, { SyncState } from "./components/SyncIndicator";
 import ConfirmSheet from "./components/ConfirmSheet";
+import OnboardingTour, { hasSeenOnboarding } from "./components/OnboardingTour";
 import { Reward } from "./constants/rewards";
 import { Trash2, Plus, AlertCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -115,6 +116,8 @@ export default function App() {
   const [reconnectError, setReconnectError] = useState(false);
   // Service worker "update available" prompt (replaces window.confirm in main.tsx)
   const [pendingWorker, setPendingWorker] = useState<ServiceWorker | null>(null);
+  // First-run onboarding tour
+  const [showOnboarding, setShowOnboarding] = useState(() => !hasSeenOnboarding());
 
   // Points & Rewards
   const [pointsBalance, setPointsBalance] = useState<number>(0);
@@ -1240,6 +1243,9 @@ export default function App() {
         onOpenPalette={() => setPaletteOpen(true)}
       />
 
+      {/* First-run onboarding tour */}
+      {showOnboarding && <OnboardingTour onDone={() => setShowOnboarding(false)} />}
+
       {/* Cloud sync status pill */}
       <SyncIndicator state={syncState} />
 
@@ -1267,6 +1273,7 @@ export default function App() {
           setColorPalette: (paletteId: string) => void applyQuickSettings({ paletteId }),
           togglePaperTexture: () => void applyQuickSettings({ paperTexture: !settings.paperTexture }),
           toggleLiquidGlass: () => void applyQuickSettings({ liquidGlass: !settings.liquidGlass }),
+          showTour: () => setShowOnboarding(true),
           jumpToDay: handleJumpToDay,
           forceSync: () => {
             const user = auth.currentUser;
