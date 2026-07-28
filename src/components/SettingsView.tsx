@@ -73,12 +73,41 @@ function hexToHsl(hex: string): { h: number; s: number; l: number } {
   };
 }
 
+/**
+ * Collapsible group wrapper so the long settings form reads as a few tidy
+ * sections instead of one endless scroll.
+ */
+function SettingsGroup({
+  id, title, open, onToggle, children,
+}: {
+  id: string; title: string; open: boolean; onToggle: () => void; children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col" id={`settings-group-${id}`}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex items-center justify-between gap-2 py-1.5 cursor-pointer group"
+      >
+        <span className="font-sans text-[13px] font-bold text-slate-700 dark:text-slate-200">{title}</span>
+        {open ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+      </button>
+      {open && <div className="flex flex-col gap-5 pt-2 pb-1">{children}</div>}
+    </div>
+  );
+}
+
 export default function SettingsView({
   initialSettings,
   onSave,
   onCancel,
   onColorChangeLive,
 }: SettingsViewProps) {
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
+    appearance: true, writing: false, effects: false,
+  });
+  const toggleGroup = (k: string) => setOpenGroups((g) => ({ ...g, [k]: !g[k] }));
   const [selectedPostItColor, setSelectedPostItColor] = useState(initialSettings.postItColor);
   const [selectedPenColor, setSelectedPenColor] = useState(initialSettings.penColor);
   const [selectedFont, setSelectedFont] = useState(initialSettings.fontFamily);
@@ -289,6 +318,7 @@ export default function SettingsView({
           </h2>
         </div>
 
+        <SettingsGroup id="appearance" title="Tema & cores" open={openGroups.appearance} onToggle={() => toggleGroup("appearance")}>
         {/* Section -1: Light/Dark Theme Selector */}
         <div className="flex flex-col gap-2" id="settings-section-theme">
           <label className="font-sans text-xs font-bold uppercase tracking-wider text-slate-500">
@@ -450,6 +480,9 @@ export default function SettingsView({
           </div>
         </div>
 
+        </SettingsGroup>
+
+        <SettingsGroup id="writing" title="Escrita" open={openGroups.writing} onToggle={() => toggleGroup("writing")}>
         {/* Section 2: Pen Color (3 presets) */}
         <div className="flex flex-col gap-2" id="settings-section-pencolor">
           <label className="font-sans text-xs font-bold uppercase tracking-wider text-slate-500">
@@ -502,6 +535,9 @@ export default function SettingsView({
           </select>
         </div>
 
+        </SettingsGroup>
+
+        <SettingsGroup id="effects" title="Efeitos visuais" open={openGroups.effects} onToggle={() => toggleGroup("effects")}>
         {/* Section 4: Paper Texture Toggle */}
         <div className="flex items-center justify-between gap-3" id="settings-section-papertexture">
           <div className="flex flex-col">
@@ -557,6 +593,8 @@ export default function SettingsView({
             />
           </button>
         </div>
+
+        </SettingsGroup>
 
         {/* Section 5: AI Insights (advanced / opt-in). Chrome Built-in AI runs
             without a key; other browsers can paste a free Gemini API key. */}
