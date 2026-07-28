@@ -4,7 +4,7 @@
  */
 
 import React from "react";
-import { History, Plus, Settings, ShoppingBag, Target, ShieldCheck } from "lucide-react";
+import { History, Plus, ShoppingBag, LayoutGrid } from "lucide-react";
 import { AppView } from "../types";
 
 interface NavbarProps {
@@ -38,26 +38,15 @@ export default function Navbar({ currentView, onViewChange, currentUserPhoto, on
           <History className="w-5 h-5" />
         </button>
 
-        {/* Goals */}
+        {/* Progresso hub — metas, insights, checkpoints, streak */}
         <button
-          id="nav-btn-goals"
-          aria-label="Long-term goals"
-          title="Goals"
-          onClick={() => onViewChange("goals")}
-          className={itemClass(currentView === "goals")}
+          id="nav-btn-progress"
+          aria-label="Progresso"
+          title="Progresso"
+          onClick={() => onViewChange("progress")}
+          className={itemClass(currentView === "progress" || currentView === "goals" || currentView === "streak" || currentView === "insights")}
         >
-          <Target className="w-5 h-5" />
-        </button>
-
-        {/* Streak tracker */}
-        <button
-          id="nav-btn-streak"
-          aria-label="Streak tracker"
-          title="Streak"
-          onClick={() => onViewChange("streak")}
-          className={itemClass(currentView === "streak")}
-        >
-          <ShieldCheck className="w-5 h-5" />
+          <LayoutGrid className="w-5 h-5" />
         </button>
 
         {/* Center: Main View (+) */}
@@ -84,17 +73,7 @@ export default function Navbar({ currentView, onViewChange, currentUserPhoto, on
           <ShoppingBag className="w-5 h-5" />
         </button>
 
-        {/* Settings */}
-        <button
-          id="nav-btn-settings"
-          aria-label="View settings"
-          onClick={() => onViewChange("settings")}
-          className={itemClass(currentView === "settings")}
-        >
-          <Settings className="w-5 h-5" />
-        </button>
-
-        {/* Profile */}
+        {/* Profile (Settings agora vive aqui dentro) */}
         <button
           id="nav-btn-profile"
           aria-label="View user profile"

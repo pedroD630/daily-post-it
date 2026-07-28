@@ -54,7 +54,7 @@ export interface Settings {
   liquidGlass?: boolean; // Apple-style frosted translucent surfaces
 }
 
-export type AppView = "main" | "history" | "settings" | "profile" | "shop" | "insights" | "goals" | "streak";
+export type AppView = "main" | "history" | "settings" | "profile" | "shop" | "insights" | "goals" | "streak" | "progress";
 
 /**
  * A habit the user wants to quit. The streak (days clean) is always derived

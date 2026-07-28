@@ -13,7 +13,7 @@ import {
   fetchGoogleCalendarEvents
 } from "../db/firebase";
 import { Day, AppView } from "../types";
-import { Calendar, Cloud, Database, Info, LogOut, ShieldAlert, Sparkles, User as UserIcon } from "lucide-react";
+import { Calendar, Cloud, Database, Info, LogOut, ShieldAlert, Sparkles, User as UserIcon, Settings as SettingsIcon } from "lucide-react";
 import ConfirmSheet from "./ConfirmSheet";
 
 interface ProfileViewProps {
@@ -276,6 +276,19 @@ export default function ProfileView({
           {lastSyncedStr}. Your notes are securely mirrored in Supabase (PostgreSQL) for instant multidevice backup.
         </p>
       </div>
+
+      {/* Settings entry point (Settings saiu da navbar e vive aqui) */}
+      <button
+        onClick={() => onViewChange("settings")}
+        id="profile-btn-settings"
+        aria-label="Abrir configurações"
+        className="flex items-center justify-between gap-2 w-full py-3 px-4 rounded-xl border border-black/5 dark:border-white/10 bg-white/60 dark:bg-slate-900/40 hover:bg-white dark:hover:bg-slate-800 transition-colors shadow-sm cursor-pointer mt-2"
+      >
+        <span className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+          <SettingsIcon className="w-4 h-4" /> Configurações
+        </span>
+        <span className="text-slate-400">›</span>
+      </button>
 
       {/* Footer Navigation Buttons */}
       <div className="flex items-center gap-3 pt-4 border-t border-black/5" id="profile-action-footer">

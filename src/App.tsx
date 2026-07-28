@@ -14,9 +14,8 @@ import HistoryView from "./components/HistoryView";
 import SettingsView from "./components/SettingsView";
 import ProfileView from "./components/ProfileView";
 import ShopView from "./components/ShopView";
-import InsightsView from "./components/InsightsView";
 import CommandPalette from "./components/CommandPalette";
-import GoalsView from "./components/GoalsView";
+import GoalsView, { ProgressTab } from "./components/GoalsView";
 import { getPaletteById } from "./constants/palettes";
 import { pointValue, computeTaskPoints } from "./utils/points";
 import { computeStreak } from "./utils/insights";
@@ -24,7 +23,6 @@ import { startPenaltyScheduler, checkMissedPenalty } from "./utils/penaltySchedu
 import { syncPointsBalanceToSupabase, pullPointsBalanceFromSupabase, syncGoalToSupabase, deleteGoalFromSupabase, pullAllGoalsFromSupabase, syncCheckpointToSupabase, pullAllCheckpointsFromSupabase, syncHabitToSupabase, pullAllHabitsFromSupabase } from "./db/supabase";
 import { Checkpoint, Habit } from "./types";
 import { ParsedCheckpoint } from "./utils/checkpointParser";
-import StreakView from "./components/StreakView";
 import SyncIndicator, { SyncState } from "./components/SyncIndicator";
 import ConfirmSheet from "./components/ConfirmSheet";
 import OnboardingTour, { hasSeenOnboarding } from "./components/OnboardingTour";
@@ -130,6 +128,14 @@ export default function App() {
   // Command palette + cross-view navigation helpers
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [historyFocusDayId, setHistoryFocusDayId] = useState<string | null>(null);
+  // Which tab the Progress hub opens on. `undefined` keeps the user's last tab.
+  const [progressTab, setProgressTab] = useState<ProgressTab | undefined>(undefined);
+
+  // Navigate to the Progress hub, optionally on a specific tab.
+  const openProgress = (tab?: ProgressTab) => {
+    setProgressTab(tab);
+    setCurrentView("progress");
+  };
   // Always-fresh ref of today's tasks for the penalty scheduler (which runs
   // on a setInterval and would otherwise capture a stale closure).
   const todayDayRef = useRef<Day | null>(null);
@@ -1267,7 +1273,15 @@ export default function App() {
         days={todayDay ? [todayDay, ...allDaysList.filter((d) => d.id !== todayDay.id)] : allDaysList}
         todayId={getTodayId()}
         ctx={{
-          setView: setCurrentView,
+          setView: (v: AppView) => {
+            // Route the legacy goals/streak/insights ids into the Progress hub
+            // on the matching tab.
+            if (v === "goals") return openProgress("list");
+            if (v === "streak") return openProgress("streak");
+            if (v === "insights") return openProgress("insights");
+            setProgressTab(undefined);
+            setCurrentView(v);
+          },
           newTask: handleAddTask,
           setTheme: (theme: ThemeMode) => void applyQuickSettings({ theme }),
           setColorPalette: (paletteId: string) => void applyQuickSettings({ paletteId }),
@@ -1377,7 +1391,7 @@ export default function App() {
                     pointsBalance={displayBalance}
                     onNoteChange={handleNoteChange}
                     streak={streak}
-                    onOpenInsights={() => setCurrentView("insights")}
+                    onOpenInsights={() => openProgress("insights")}
                   />
                 </motion.div>
 
@@ -1424,13 +1438,31 @@ export default function App() {
               />
             )}
 
-            {currentView === "insights" && (
-              <InsightsView
+            {/* Progress hub — unified Metas / Insights / Checkpoints / Streak.
+                Also handles legacy goals/streak/insights view ids so the
+                command palette and flame chip keep working. */}
+            {(currentView === "progress" || currentView === "goals" || currentView === "streak" || currentView === "insights") && (
+              <GoalsView
+                goals={goals}
                 allDays={allDays}
                 pointsBalance={displayBalance}
-                goals={goals}
                 geminiApiKey={settings.geminiApiKey}
+                checkpoints={checkpoints}
+                habits={habits}
+                initialTab={
+                  progressTab ??
+                  (currentView === "streak" ? "streak" :
+                   currentView === "insights" ? "insights" :
+                   currentView === "goals" ? "list" : undefined)
+                }
+                onSaveGoal={handleSaveGoal}
+                onDeleteGoal={handleDeleteGoal}
+                onArchiveGoal={handleArchiveGoal}
                 onAddCheckpoint={handleAddCheckpoint}
+                onToggleCheckpoint={handleToggleCheckpoint}
+                onDeleteCheckpoint={handleDeleteCheckpoint}
+                onSaveHabit={handleSaveHabit}
+                onDeleteHabit={handleDeleteHabit}
               />
             )}
 
@@ -1462,29 +1494,6 @@ export default function App() {
               />
             )}
 
-            {currentView === "goals" && (
-              <GoalsView
-                goals={goals}
-                allDays={todayDay ? [...allDaysList.filter((d) => d.id !== todayDay.id), todayDay] : allDaysList}
-                pointsBalance={displayBalance}
-                geminiApiKey={settings.geminiApiKey}
-                checkpoints={checkpoints}
-                onSaveGoal={handleSaveGoal}
-                onDeleteGoal={handleDeleteGoal}
-                onArchiveGoal={handleArchiveGoal}
-                onAddCheckpoint={handleAddCheckpoint}
-                onToggleCheckpoint={handleToggleCheckpoint}
-                onDeleteCheckpoint={handleDeleteCheckpoint}
-              />
-            )}
-
-            {currentView === "streak" && (
-              <StreakView
-                habits={habits}
-                onSaveHabit={handleSaveHabit}
-                onDeleteHabit={handleDeleteHabit}
-              />
-            )}
           </motion.div>
         </AnimatePresence>
       </main>
