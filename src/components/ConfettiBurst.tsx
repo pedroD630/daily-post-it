@@ -48,19 +48,26 @@ function makeParticles(seed: number): Particle[] {
   return particles;
 }
 
+function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
 export default function ConfettiBurst({ burst }: { burst: number }) {
   const [active, setActive] = useState(false);
+  const reduced = useMemo(prefersReducedMotion, []);
 
   useEffect(() => {
-    if (burst <= 0) return;
+    if (burst <= 0 || reduced) return;
     setActive(true);
     const t = setTimeout(() => setActive(false), 1600);
     return () => clearTimeout(t);
-  }, [burst]);
+  }, [burst, reduced]);
 
   const particles = useMemo(() => makeParticles(burst), [burst]);
 
-  if (!active) return null;
+  // Respect the OS "reduce motion" setting — no flying particles.
+  if (reduced || !active) return null;
 
   return (
     <div

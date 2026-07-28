@@ -80,6 +80,14 @@ export default function PostItCard({
     setNoteText(day.note || "");
   }, [day.id, day.note]);
 
+  // Density controls: keep the card light. Completed tasks collapse when many;
+  // the note scratchpad only expands on demand (or when it already has text).
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [showNote, setShowNote] = useState(!!(day.note && day.note.trim()));
+  useEffect(() => {
+    setShowNote(!!(day.note && day.note.trim()));
+  }, [day.id, day.note]);
+
   // All-done celebration: fire confetti when the LAST task gets completed.
   // Rising-edge detection so reloads/readonly cards never re-fire.
   const allDone = !readOnly && day.tasks.length > 0 && day.tasks.every((t) => t.completed);
@@ -293,32 +301,38 @@ export default function PostItCard({
 
             {completedTasks.length > 0 && (
               <div className="flex flex-col gap-2 pt-3 border-t border-black/10">
-                <span className="text-[10px] uppercase font-mono tracking-wider opacity-45 pl-1 select-none">
-                  Completed Section
-                </span>
-                <Reorder.Group
-                  axis="y"
-                  values={completedTasks}
-                  onReorder={handleReorderCompleted}
-                  as="div"
-                  className="flex flex-col gap-1 w-full"
+                <button
+                  type="button"
+                  onClick={() => setShowCompleted((v) => !v)}
+                  className="flex items-center gap-1 text-[10px] uppercase font-mono tracking-wider opacity-45 hover:opacity-80 pl-1 cursor-pointer w-fit"
                 >
-                  {completedTasks.map((task) => (
-                    <TaskItem
-                      key={task.id}
-                      task={task}
-                      onToggleComplete={onToggleComplete}
-                      onTextChange={onTextChange}
-                      onTextChangeFinished={onTextChangeFinished}
-                      onTimeChange={onTimeChange}
-                      onDelete={onDelete}
-                      readOnly={readOnly}
-                      isNew={false}
-                      activeDeleteId={activeDeleteId}
-                      setActiveDeleteId={setActiveDeleteId}
-                    />
-                  ))}
-                </Reorder.Group>
+                  {showCompleted ? "▾" : "▸"} Concluídas ({completedTasks.length})
+                </button>
+                {showCompleted && (
+                  <Reorder.Group
+                    axis="y"
+                    values={completedTasks}
+                    onReorder={handleReorderCompleted}
+                    as="div"
+                    className="flex flex-col gap-1 w-full"
+                  >
+                    {completedTasks.map((task) => (
+                      <TaskItem
+                        key={task.id}
+                        task={task}
+                        onToggleComplete={onToggleComplete}
+                        onTextChange={onTextChange}
+                        onTextChangeFinished={onTextChangeFinished}
+                        onTimeChange={onTimeChange}
+                        onDelete={onDelete}
+                        readOnly={readOnly}
+                        isNew={false}
+                        activeDeleteId={activeDeleteId}
+                        setActiveDeleteId={setActiveDeleteId}
+                      />
+                    ))}
+                  </Reorder.Group>
+                )}
               </div>
             )}
 
@@ -351,35 +365,50 @@ export default function PostItCard({
         )}
       </div>
 
-      {/* Day-note scratchpad — free-form handwritten notes below the tasks.
-          Editable on today's card; history shows it read-only when present. */}
+      {/* Day-note scratchpad — collapsed by default to keep the card light.
+          Expands on demand (or auto-open when there's already note text). */}
       {(onNoteChange || (readOnly && day.note)) && (
         <div
           id={`postit-note-area-${day.id}`}
           className="relative z-10 mt-4 pt-3 border-t border-dashed border-black/15 select-text"
         >
-          <span className="text-[10px] uppercase font-mono tracking-wider opacity-40 pl-1 select-none">
-            ✎ Notes
-          </span>
           {readOnly ? (
-            <p className="scratchpad-lines font-handwritten text-sm text-slate-700/90 px-1 mt-1 whitespace-pre-wrap break-words">
-              {day.note}
-            </p>
+            day.note && (
+              <>
+                <span className="text-[10px] uppercase font-mono tracking-wider opacity-40 pl-1 select-none">✎ Notas</span>
+                <p className="scratchpad-lines font-handwritten text-sm text-slate-700/90 px-1 mt-1 whitespace-pre-wrap break-words">
+                  {day.note}
+                </p>
+              </>
+            )
+          ) : showNote ? (
+            <>
+              <span className="text-[10px] uppercase font-mono tracking-wider opacity-40 pl-1 select-none">✎ Notas</span>
+              <textarea
+                id={`postit-note-input-${day.id}`}
+                value={noteText}
+                autoFocus={!day.note}
+                onChange={(e) => setNoteText(e.target.value)}
+                onBlur={() => {
+                  if (noteText !== (day.note || "")) {
+                    onNoteChange?.(noteText);
+                  }
+                  if (!noteText.trim()) setShowNote(false);
+                }}
+                placeholder="Anote uma ideia, um pensamento…"
+                rows={Math.max(2, noteText.split("\n").length)}
+                className="scratchpad-lines w-full bg-transparent resize-none outline-none font-handwritten text-sm text-slate-700/90 placeholder:text-slate-500/40 px-1 mt-1 break-words"
+                style={{ minHeight: "56px" }}
+              />
+            </>
           ) : (
-            <textarea
-              id={`postit-note-input-${day.id}`}
-              value={noteText}
-              onChange={(e) => setNoteText(e.target.value)}
-              onBlur={() => {
-                if (noteText !== (day.note || "")) {
-                  onNoteChange?.(noteText);
-                }
-              }}
-              placeholder="Scribble a thought, an idea, anything..."
-              rows={Math.max(2, noteText.split("\n").length)}
-              className="scratchpad-lines w-full bg-transparent resize-none outline-none font-handwritten text-sm text-slate-700/90 placeholder:text-slate-500/40 px-1 mt-1 break-words"
-              style={{ minHeight: "56px" }}
-            />
+            <button
+              type="button"
+              onClick={() => setShowNote(true)}
+              className="flex items-center gap-1 text-[10px] uppercase font-mono tracking-wider opacity-40 hover:opacity-80 pl-1 cursor-pointer"
+            >
+              ✎ Adicionar nota
+            </button>
           )}
         </div>
       )}

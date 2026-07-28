@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { X, Trash2 } from "lucide-react";
 import { Habit } from "../types";
 import { todayISO } from "../utils/streakCalculator";
+import ConfirmSheet from "./ConfirmSheet";
 
 interface Props {
   open: boolean;
@@ -26,6 +27,7 @@ export default function HabitFormSheet({ open, initial, onClose, onSave, onDelet
   const [icon, setIcon] = useState("🔒");
   const [lastRelapse, setLastRelapse] = useState(todayISO());
   const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -162,9 +164,7 @@ export default function HabitFormSheet({ open, initial, onClose, onSave, onDelet
                 {initial && onDelete && (
                   <button
                     type="button"
-                    onClick={() => {
-                      if (window.confirm(`Excluir o hábito "${initial.name}"?`)) onDelete(initial.id);
-                    }}
+                    onClick={() => setConfirmDelete(true)}
                     className="py-2 rounded-xl text-red-600 dark:text-red-400 text-xs font-semibold hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer flex items-center justify-center gap-1.5"
                   >
                     <Trash2 className="w-3.5 h-3.5" /> Excluir hábito
@@ -173,6 +173,18 @@ export default function HabitFormSheet({ open, initial, onClose, onSave, onDelet
               </div>
             </div>
           </motion.form>
+
+          {initial && onDelete && (
+            <ConfirmSheet
+              open={confirmDelete}
+              title={`Excluir o hábito "${initial.name}"?`}
+              message="O histórico deste hábito será removido."
+              confirmLabel="Excluir"
+              danger
+              onConfirm={() => { setConfirmDelete(false); onDelete(initial.id); }}
+              onCancel={() => setConfirmDelete(false)}
+            />
+          )}
         </>
       )}
     </AnimatePresence>

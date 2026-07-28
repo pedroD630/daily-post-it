@@ -3,13 +3,10 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
+// Hand the waiting worker to the React app so it can show a styled prompt
+// instead of a native window.confirm. App listens for "sw-update-available".
 function notifyUpdateAvailable(worker: ServiceWorker) {
-  const accepted = window.confirm(
-    "Nova versão do Daily Post-it disponível. Atualizar agora?"
-  );
-  if (accepted) {
-    worker.postMessage("SKIP_WAITING");
-  }
+  window.dispatchEvent(new CustomEvent("sw-update-available", { detail: worker }));
 }
 
 if ("serviceWorker" in navigator) {

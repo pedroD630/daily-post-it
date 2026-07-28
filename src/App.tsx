@@ -14,9 +14,8 @@ import HistoryView from "./components/HistoryView";
 import SettingsView from "./components/SettingsView";
 import ProfileView from "./components/ProfileView";
 import ShopView from "./components/ShopView";
-import InsightsView from "./components/InsightsView";
 import CommandPalette from "./components/CommandPalette";
-import GoalsView from "./components/GoalsView";
+import GoalsView, { ProgressTab } from "./components/GoalsView";
 import { getPaletteById } from "./constants/palettes";
 import { pointValue, computeTaskPoints } from "./utils/points";
 import { computeStreak } from "./utils/insights";
@@ -24,7 +23,9 @@ import { startPenaltyScheduler, checkMissedPenalty } from "./utils/penaltySchedu
 import { syncPointsBalanceToSupabase, pullPointsBalanceFromSupabase, syncGoalToSupabase, deleteGoalFromSupabase, pullAllGoalsFromSupabase, syncCheckpointToSupabase, pullAllCheckpointsFromSupabase, syncHabitToSupabase, pullAllHabitsFromSupabase } from "./db/supabase";
 import { Checkpoint, Habit } from "./types";
 import { ParsedCheckpoint } from "./utils/checkpointParser";
-import StreakView from "./components/StreakView";
+import SyncIndicator, { SyncState } from "./components/SyncIndicator";
+import ConfirmSheet from "./components/ConfirmSheet";
+import OnboardingTour, { hasSeenOnboarding } from "./components/OnboardingTour";
 import { Reward } from "./constants/rewards";
 import { Trash2, Plus, AlertCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -110,6 +111,11 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
   const [calendarExpired, setCalendarExpired] = useState(false);
+  const [reconnectError, setReconnectError] = useState(false);
+  // Service worker "update available" prompt (replaces window.confirm in main.tsx)
+  const [pendingWorker, setPendingWorker] = useState<ServiceWorker | null>(null);
+  // First-run onboarding tour
+  const [showOnboarding, setShowOnboarding] = useState(() => !hasSeenOnboarding());
 
   // Points & Rewards
   const [pointsBalance, setPointsBalance] = useState<number>(0);
@@ -122,6 +128,14 @@ export default function App() {
   // Command palette + cross-view navigation helpers
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [historyFocusDayId, setHistoryFocusDayId] = useState<string | null>(null);
+  // Which tab the Progress hub opens on. `undefined` keeps the user's last tab.
+  const [progressTab, setProgressTab] = useState<ProgressTab | undefined>(undefined);
+
+  // Navigate to the Progress hub, optionally on a specific tab.
+  const openProgress = (tab?: ProgressTab) => {
+    setProgressTab(tab);
+    setCurrentView("progress");
+  };
   // Always-fresh ref of today's tasks for the penalty scheduler (which runs
   // on a setInterval and would otherwise capture a stale closure).
   const todayDayRef = useRef<Day | null>(null);
@@ -162,6 +176,17 @@ export default function App() {
   useEffect(() => {
     document.documentElement.classList.toggle("liquid-glass", !!settings.liquidGlass);
   }, [settings.liquidGlass]);
+
+  // Service worker update prompt — surfaced as a styled sheet instead of the
+  // native window.confirm that main.tsx used to fire.
+  useEffect(() => {
+    const onUpdate = (e: Event) => {
+      const worker = (e as CustomEvent).detail as ServiceWorker | undefined;
+      if (worker) setPendingWorker(worker);
+    };
+    window.addEventListener("sw-update-available", onUpdate);
+    return () => window.removeEventListener("sw-update-available", onUpdate);
+  }, []);
 
   // Global keyboard shortcut: Ctrl/Cmd+K toggles the command palette
   useEffect(() => {
@@ -339,11 +364,17 @@ export default function App() {
   //   4. Re-read everything from IDB into React state.
   const isRefreshingRef = useRef(false);
   const lastRefreshAtRef = useRef(0);
+  const [syncState, setSyncState] = useState<SyncState>("idle");
 
   const refreshFromCloud = async (uid: string, opts: { force?: boolean } = {}) => {
     if (isRefreshingRef.current) return;
     if (!opts.force && Date.now() - lastRefreshAtRef.current < 5_000) return; // throttle
     isRefreshingRef.current = true;
+    if (!navigator.onLine) {
+      setSyncState("offline");
+    } else {
+      setSyncState("syncing");
+    }
     try {
       if (navigator.onLine) {
         try {
@@ -437,6 +468,9 @@ export default function App() {
       }
       await loadInitialData();
       lastRefreshAtRef.current = Date.now();
+      setSyncState(navigator.onLine ? "synced" : "offline");
+    } catch {
+      setSyncState(navigator.onLine ? "idle" : "offline");
     } finally {
       isRefreshingRef.current = false;
     }
@@ -1215,6 +1249,23 @@ export default function App() {
         onOpenPalette={() => setPaletteOpen(true)}
       />
 
+      {/* First-run onboarding tour */}
+      {showOnboarding && <OnboardingTour onDone={() => setShowOnboarding(false)} />}
+
+      {/* Cloud sync status pill */}
+      <SyncIndicator state={syncState} />
+
+      {/* Service worker update prompt */}
+      <ConfirmSheet
+        open={pendingWorker !== null}
+        title="Nova versão disponível"
+        message="Uma atualização do Daily Post-it está pronta. Atualizar agora?"
+        confirmLabel="Atualizar"
+        cancelLabel="Depois"
+        onConfirm={() => { pendingWorker?.postMessage("SKIP_WAITING"); setPendingWorker(null); }}
+        onCancel={() => setPendingWorker(null)}
+      />
+
       {/* Command Palette — Ctrl/Cmd+K or the navbar search button */}
       <CommandPalette
         open={paletteOpen}
@@ -1222,12 +1273,21 @@ export default function App() {
         days={todayDay ? [todayDay, ...allDaysList.filter((d) => d.id !== todayDay.id)] : allDaysList}
         todayId={getTodayId()}
         ctx={{
-          setView: setCurrentView,
+          setView: (v: AppView) => {
+            // Route the legacy goals/streak/insights ids into the Progress hub
+            // on the matching tab.
+            if (v === "goals") return openProgress("list");
+            if (v === "streak") return openProgress("streak");
+            if (v === "insights") return openProgress("insights");
+            setProgressTab(undefined);
+            setCurrentView(v);
+          },
           newTask: handleAddTask,
           setTheme: (theme: ThemeMode) => void applyQuickSettings({ theme }),
           setColorPalette: (paletteId: string) => void applyQuickSettings({ paletteId }),
           togglePaperTexture: () => void applyQuickSettings({ paperTexture: !settings.paperTexture }),
           toggleLiquidGlass: () => void applyQuickSettings({ liquidGlass: !settings.liquidGlass }),
+          showTour: () => setShowOnboarding(true),
           jumpToDay: handleJumpToDay,
           forceSync: () => {
             const user = auth.currentUser;
@@ -1254,17 +1314,23 @@ export default function App() {
           </div>
           <button
             onClick={() => {
+              setReconnectError(false);
               reconnectGoogleCalendar()
                 .then((ok) => { if (ok) setCalendarExpired(false); })
                 .catch((err) => {
                   console.error("Reconnect popup failed:", err);
-                  window.alert("Popup blocked. Please allow popups or click Reconnect again.");
+                  setReconnectError(true);
                 });
             }}
             className="bg-amber-600 hover:bg-amber-700 text-white font-mono text-[9px] uppercase font-bold py-1 px-2.5 rounded shadow-sm transition-colors shrink-0"
           >
             Reconnect
           </button>
+        </div>
+      )}
+      {reconnectError && (
+        <div className="mx-auto -mt-1 mb-2 w-full max-w-md text-[11px] text-amber-800 dark:text-amber-300 px-3.5 text-center">
+          Popup bloqueado. Permita popups para este site e toque em Reconnect de novo.
         </div>
       )}
 
@@ -1325,7 +1391,7 @@ export default function App() {
                     pointsBalance={displayBalance}
                     onNoteChange={handleNoteChange}
                     streak={streak}
-                    onOpenInsights={() => setCurrentView("insights")}
+                    onOpenInsights={() => openProgress("insights")}
                   />
                 </motion.div>
 
@@ -1372,13 +1438,31 @@ export default function App() {
               />
             )}
 
-            {currentView === "insights" && (
-              <InsightsView
+            {/* Progress hub — unified Metas / Insights / Checkpoints / Streak.
+                Also handles legacy goals/streak/insights view ids so the
+                command palette and flame chip keep working. */}
+            {(currentView === "progress" || currentView === "goals" || currentView === "streak" || currentView === "insights") && (
+              <GoalsView
+                goals={goals}
                 allDays={allDays}
                 pointsBalance={displayBalance}
-                goals={goals}
                 geminiApiKey={settings.geminiApiKey}
+                checkpoints={checkpoints}
+                habits={habits}
+                initialTab={
+                  progressTab ??
+                  (currentView === "streak" ? "streak" :
+                   currentView === "insights" ? "insights" :
+                   currentView === "goals" ? "list" : undefined)
+                }
+                onSaveGoal={handleSaveGoal}
+                onDeleteGoal={handleDeleteGoal}
+                onArchiveGoal={handleArchiveGoal}
                 onAddCheckpoint={handleAddCheckpoint}
+                onToggleCheckpoint={handleToggleCheckpoint}
+                onDeleteCheckpoint={handleDeleteCheckpoint}
+                onSaveHabit={handleSaveHabit}
+                onDeleteHabit={handleDeleteHabit}
               />
             )}
 
@@ -1410,29 +1494,6 @@ export default function App() {
               />
             )}
 
-            {currentView === "goals" && (
-              <GoalsView
-                goals={goals}
-                allDays={todayDay ? [...allDaysList.filter((d) => d.id !== todayDay.id), todayDay] : allDaysList}
-                pointsBalance={displayBalance}
-                geminiApiKey={settings.geminiApiKey}
-                checkpoints={checkpoints}
-                onSaveGoal={handleSaveGoal}
-                onDeleteGoal={handleDeleteGoal}
-                onArchiveGoal={handleArchiveGoal}
-                onAddCheckpoint={handleAddCheckpoint}
-                onToggleCheckpoint={handleToggleCheckpoint}
-                onDeleteCheckpoint={handleDeleteCheckpoint}
-              />
-            )}
-
-            {currentView === "streak" && (
-              <StreakView
-                habits={habits}
-                onSaveHabit={handleSaveHabit}
-                onDeleteHabit={handleDeleteHabit}
-              />
-            )}
           </motion.div>
         </AnimatePresence>
       </main>

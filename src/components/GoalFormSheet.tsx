@@ -13,6 +13,7 @@ import { X, Tag, Trash2, Archive, ArchiveRestore } from "lucide-react";
 import { Goal } from "../types";
 import { GOAL_COLORS, DEFAULT_GOAL_COLOR } from "../constants/goalColors";
 import { normalize } from "../utils/goalMatching";
+import ConfirmSheet from "./ConfirmSheet";
 
 interface GoalFormSheetProps {
   open: boolean;
@@ -37,6 +38,7 @@ export default function GoalFormSheet({
   const [targetUnit, setTargetUnit] = useState<"day" | "week" | "month">("week");
   const [baseColor, setBaseColor] = useState(DEFAULT_GOAL_COLOR);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Seed form from `initial` whenever the sheet opens (so reopening with a
   // different goal doesn't show stale state from a previous edit).
@@ -295,11 +297,7 @@ export default function GoalFormSheet({
                     {onDelete && (
                       <button
                         type="button"
-                        onClick={() => {
-                          if (window.confirm(`Delete "${initial.title}" permanently? Past actions stay on the tasks.`)) {
-                            onDelete(initial.id);
-                          }
-                        }}
+                        onClick={() => setConfirmDelete(true)}
                         className="flex-1 py-2 rounded-xl text-red-600 dark:text-red-400 text-xs font-semibold hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer flex items-center justify-center gap-1.5"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -311,6 +309,18 @@ export default function GoalFormSheet({
               </div>
             </div>
           </motion.form>
+
+          {initial && onDelete && (
+            <ConfirmSheet
+              open={confirmDelete}
+              title={`Excluir "${initial.title}"?`}
+              message="A meta é removida permanentemente. As tarefas passadas continuam nos seus registros."
+              confirmLabel="Excluir"
+              danger
+              onConfirm={() => { setConfirmDelete(false); onDelete(initial.id); }}
+              onCancel={() => setConfirmDelete(false)}
+            />
+          )}
         </>
       )}
     </AnimatePresence>

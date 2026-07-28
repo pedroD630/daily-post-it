@@ -7,15 +7,19 @@
  * onSave / onDelete / onArchive callbacks (so cloud sync stays in App.tsx).
  */
 
-import { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Plus, Target as TargetIcon, BarChart3, ArchiveRestore, Flag } from "lucide-react";
-import { Checkpoint, Day, Goal } from "../types";
+import { Plus, Target as TargetIcon, BarChart3, ArchiveRestore, Flag, ShieldCheck } from "lucide-react";
+import { Checkpoint, Day, Goal, Habit } from "../types";
 import GoalCard from "./GoalCard";
 import GoalFormSheet from "./GoalFormSheet";
 import GoalsInsightsPanel from "./GoalsInsightsPanel";
 import CheckpointsPanel from "./CheckpointsPanel";
+import StreakView from "./StreakView";
+import ProductivityDashboard from "./ProductivityDashboard";
 import { ParsedCheckpoint } from "../utils/checkpointParser";
+
+export type ProgressTab = "list" | "insights" | "checkpoints" | "streak";
 
 interface GoalsViewProps {
   goals: Goal[];
@@ -23,24 +27,30 @@ interface GoalsViewProps {
   pointsBalance: number;
   geminiApiKey?: string;
   checkpoints: Checkpoint[];
+  habits: Habit[];
+  initialTab?: ProgressTab;
   onSaveGoal: (goal: Goal) => Promise<void> | void;
   onDeleteGoal: (id: string) => Promise<void> | void;
   onArchiveGoal: (id: string, archived: boolean) => Promise<void> | void;
   onAddCheckpoint: (cp: ParsedCheckpoint) => Promise<void> | void;
   onToggleCheckpoint: (cp: Checkpoint) => Promise<void> | void;
   onDeleteCheckpoint: (id: string) => Promise<void> | void;
+  onSaveHabit: (habit: Habit) => Promise<void> | void;
+  onDeleteHabit: (id: string) => Promise<void> | void;
 }
 
-type Tab = "list" | "insights" | "checkpoints";
+type Tab = ProgressTab;
 
 const MAX_ACTIVE_GOALS = 12;
 
 export default function GoalsView({
-  goals, allDays, pointsBalance, geminiApiKey, checkpoints,
+  goals, allDays, pointsBalance, geminiApiKey, checkpoints, habits, initialTab,
   onSaveGoal, onDeleteGoal, onArchiveGoal,
   onAddCheckpoint, onToggleCheckpoint, onDeleteCheckpoint,
+  onSaveHabit, onDeleteHabit,
 }: GoalsViewProps) {
-  const [tab, setTab] = useState<Tab>("list");
+  const [tab, setTab] = useState<Tab>(initialTab ?? "list");
+  useEffect(() => { if (initialTab) setTab(initialTab); }, [initialTab]);
   const [editing, setEditing] = useState<Goal | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
@@ -51,6 +61,13 @@ export default function GoalsView({
   const askNextStep = (cp: Checkpoint, goal: Goal) => {
     setChatSeed(
       `Concluí o checkpoint "${cp.title}" da meta "${goal.title}". Qual deveria ser o próximo passo? Se fizer sentido, proponha o próximo checkpoint (mais ambicioso).`
+    );
+    setTab("insights");
+  };
+
+  const askSteps = (goal: Goal) => {
+    setChatSeed(
+      `Quais deveriam ser as etapas (checkpoints) para eu atingir a meta "${goal.title}"? Proponha marcos concretos e mensuráveis.`
     );
     setTab("insights");
   };
@@ -75,47 +92,29 @@ export default function GoalsView({
 
   return (
     <div className="w-full max-w-md mx-auto py-6 px-4 select-none flex flex-col gap-4">
-      {/* Tabs */}
-      <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-2xl shadow-inner">
-        <button
-          id="goals-tab-list"
-          type="button"
-          onClick={() => setTab("list")}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-sm font-semibold transition-colors cursor-pointer ${
-            tab === "list"
-              ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm"
-              : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-          }`}
-        >
-          <TargetIcon className="w-4 h-4" />
-          Goals
-        </button>
-        <button
-          id="goals-tab-insights"
-          type="button"
-          onClick={() => setTab("insights")}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-sm font-semibold transition-colors cursor-pointer ${
-            tab === "insights"
-              ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm"
-              : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-          }`}
-        >
-          <BarChart3 className="w-4 h-4" />
-          Insights
-        </button>
-        <button
-          id="goals-tab-checkpoints"
-          type="button"
-          onClick={() => setTab("checkpoints")}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-sm font-semibold transition-colors cursor-pointer ${
-            tab === "checkpoints"
-              ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm"
-              : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-          }`}
-        >
-          <Flag className="w-4 h-4" />
-          Checkpoints
-        </button>
+      {/* Tabs — the Progress hub segments */}
+      <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-2xl shadow-inner overflow-x-auto">
+        {([
+          { id: "list", label: "Metas", icon: <TargetIcon className="w-4 h-4" /> },
+          { id: "insights", label: "Insights", icon: <BarChart3 className="w-4 h-4" /> },
+          { id: "checkpoints", label: "Checkpoints", icon: <Flag className="w-4 h-4" /> },
+          { id: "streak", label: "Streak", icon: <ShieldCheck className="w-4 h-4" /> },
+        ] as { id: Tab; label: string; icon: React.ReactNode }[]).map((t) => (
+          <button
+            key={t.id}
+            id={`goals-tab-${t.id}`}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={`flex-1 min-w-fit flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-xl text-[13px] font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+              tab === t.id
+                ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm"
+                : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+            }`}
+          >
+            {t.icon}
+            {t.label}
+          </button>
+        ))}
       </div>
 
       <AnimatePresence mode="wait">
@@ -154,7 +153,7 @@ export default function GoalsView({
               </div>
             )}
             {active.map((g) => (
-              <GoalCard key={g.id} goal={g} allDays={allDays} onClick={() => openEdit(g)} />
+              <GoalCard key={g.id} goal={g} allDays={allDays} onClick={() => openEdit(g)} onAskSteps={askSteps} />
             ))}
 
             {/* Archived section (collapsible) */}
@@ -185,7 +184,12 @@ export default function GoalsView({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.18 }}
+            className="flex flex-col gap-4"
           >
+            {/* Unified insights: the productivity dashboard (streak hero,
+                weekly chart, stats) followed by the AI coach + goal analysis.
+                Replaces the old separate standalone Insights view. */}
+            <ProductivityDashboard allDays={allDays} pointsBalance={pointsBalance} />
             <GoalsInsightsPanel
               goals={goals}
               allDays={allDays}
@@ -196,7 +200,7 @@ export default function GoalsView({
               onSeedConsumed={() => setChatSeed(undefined)}
             />
           </motion.div>
-        ) : (
+        ) : tab === "checkpoints" ? (
           <motion.div
             key="goals-checkpoints"
             initial={{ opacity: 0, y: 8 }}
@@ -211,6 +215,16 @@ export default function GoalsView({
               onDelete={onDeleteCheckpoint}
               onAskNextStep={askNextStep}
             />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="goals-streak"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.18 }}
+          >
+            <StreakView habits={habits} onSaveHabit={onSaveHabit} onDeleteHabit={onDeleteHabit} />
           </motion.div>
         )}
       </AnimatePresence>

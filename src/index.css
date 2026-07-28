@@ -8,6 +8,59 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+/* ---------------------------------------------------------------------------
+ * Semantic color tokens — single source of truth for what each accent means.
+ * Mirrors src/constants/semanticColors.ts. Use these for CSS-styled surfaces;
+ * use the TS module for inline styles / Tailwind class choices.
+ *   ai      = intelligence / AI Coach   (indigo)
+ *   streak  = habit streak / SOS        (rose)
+ *   success = achieved / completed      (emerald)
+ *   points  = rewards / points          (amber)
+ *   goal    = long-term goals           (sky)
+ *   danger  = destructive / warning     (red)
+ * ------------------------------------------------------------------------- */
+:root {
+  --accent-ai: #6366f1;
+  --accent-streak: #e11d48;
+  --accent-success: #10b981;
+  --accent-points: #f59e0b;
+  --accent-goal: #0ea5e9;
+  --accent-danger: #dc2626;
+}
+
+/* ---------------------------------------------------------------------------
+ * Accessibility
+ * ------------------------------------------------------------------------- */
+
+/* Visible keyboard focus ring on interactive elements — only for keyboard
+ * users (`:focus-visible`), so mouse/touch don't get an outline. */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible,
+[role="switch"]:focus-visible {
+  outline: 2px solid var(--accent-ai);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Honor the OS "reduce motion" preference: cut animation/transition down to a
+ * blink so nothing flies, spins, or slides for users who opt out. motion/react
+ * respects this for its own animations; this covers CSS keyframe utilities
+ * (animate-spin-slow, shake, typewriter) and long transitions. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Custom CSS font helpers matching PRD specifications */
 .font-default {
   font-family: Arial, Helvetica, sans-serif;

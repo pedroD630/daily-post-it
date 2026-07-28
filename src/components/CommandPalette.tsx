@@ -18,7 +18,7 @@ import {
   Search, Plus, StickyNote, History, ShoppingBag, Settings as SettingsIcon,
   User as UserIcon, BarChart3, SunMedium, Moon, MonitorSmartphone,
   Palette as PaletteIcon, Layers, CheckCircle2, Circle, CornerDownLeft,
-  RefreshCw, Target as TargetIcon, ShieldCheck,
+  RefreshCw, Target as TargetIcon, ShieldCheck, Info,
 } from "lucide-react";
 import { Day, AppView, ThemeMode } from "../types";
 import { PALETTES } from "../constants/palettes";
@@ -30,6 +30,7 @@ export interface PaletteCommandContext {
   setColorPalette: (paletteId: string) => void;
   togglePaperTexture: () => void;
   toggleLiquidGlass: () => void;
+  showTour: () => void;
   jumpToDay: (dayId: string) => void;
   forceSync: () => void;
 }
@@ -106,6 +107,7 @@ export default function CommandPalette({ open, onClose, days, todayId, ctx }: Co
       { kind: "action", id: "theme-system", label: "Theme: System", icon: <MonitorSmartphone className="w-4 h-4" />, keywords: "theme system auto sistema tema", run: close(() => ctx.setTheme("system")) },
       { kind: "action", id: "toggle-texture", label: "Toggle paper texture", icon: <Layers className="w-4 h-4" />, keywords: "texture paper shader textura papel", run: close(() => ctx.togglePaperTexture()) },
       { kind: "action", id: "toggle-liquid-glass", label: "Toggle Liquid Glass", icon: <Layers className="w-4 h-4" />, keywords: "liquid glass vidro translucido frosted glassmorphism", run: close(() => ctx.toggleLiquidGlass()) },
+      { kind: "action", id: "show-tour", label: "Ver tour de boas-vindas", icon: <Info className="w-4 h-4" />, keywords: "tour onboarding ajuda help boas-vindas tutorial", run: close(() => ctx.showTour()) },
     ];
     for (const p of PALETTES) {
       items.push({

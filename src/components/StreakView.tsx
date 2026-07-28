@@ -8,12 +8,14 @@
  */
 
 import { useState } from "react";
-import { Plus, ShieldCheck } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import { Plus, ShieldCheck, Lock, LockOpen } from "lucide-react";
 import { Habit } from "../types";
 import HabitCard from "./HabitCard";
 import HabitFormSheet from "./HabitFormSheet";
 import RelapseConfirmSheet from "./RelapseConfirmSheet";
 import SOSModal from "./SOSModal";
+import StreakLockGate, { getStreakPin, setStreakPin } from "./StreakLockGate";
 import { todayISO } from "../utils/streakCalculator";
 
 interface Props {
@@ -31,6 +33,8 @@ export default function StreakView({ habits, onSaveHabit, onDeleteHabit }: Props
   const [editing, setEditing] = useState<Habit | null>(null);
   const [relapseFor, setRelapseFor] = useState<Habit | null>(null);
   const [sosFor, setSosFor] = useState<Habit | null>(null);
+  const [encourage, setEncourage] = useState(false);
+  const [hasPin, setHasPin] = useState<boolean>(() => !!getStreakPin());
 
   const canCreate = active.length < MAX_HABITS;
 
@@ -41,14 +45,59 @@ export default function StreakView({ habits, onSaveHabit, onDeleteHabit }: Props
     if (!relapseFor) return;
     onSaveHabit({ ...relapseFor, lastRelapseDate: todayISO(), updatedAt: Date.now() });
     setRelapseFor(null);
+    // Gentle acknowledgement — no punishment, just encouragement to keep going.
+    setEncourage(true);
+    setTimeout(() => setEncourage(false), 4500);
+  };
+
+  const toggleLock = () => {
+    if (hasPin) {
+      setStreakPin(null);
+      setHasPin(false);
+      return;
+    }
+    const pin = window.prompt("Defina um PIN de 4 dígitos para proteger esta aba:");
+    if (pin && /^\d{4}$/.test(pin)) {
+      setStreakPin(pin);
+      setHasPin(true);
+    } else if (pin !== null) {
+      // invalid input
+      setStreakPin(null);
+    }
   };
 
   return (
+    <StreakLockGate>
     <div className="w-full max-w-md mx-auto py-6 px-4 select-none flex flex-col gap-4">
-      <div className="flex items-center gap-2 px-1">
-        <ShieldCheck className="w-5 h-5 text-emerald-500" />
-        <h2 className="font-sans font-bold text-lg text-slate-800 dark:text-slate-100">Streak</h2>
+      <div className="flex items-center justify-between gap-2 px-1">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="w-5 h-5 text-emerald-500" />
+          <h2 className="font-sans font-bold text-lg text-slate-800 dark:text-slate-100">Streak</h2>
+        </div>
+        <button
+          type="button"
+          onClick={toggleLock}
+          aria-label={hasPin ? "Remover PIN" : "Proteger com PIN"}
+          title={hasPin ? "Remover proteção por PIN" : "Proteger esta aba com PIN"}
+          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer"
+        >
+          {hasPin ? <Lock className="w-4 h-4" /> : <LockOpen className="w-4 h-4" />}
+        </button>
       </div>
+
+      {/* Post-relapse encouragement */}
+      <AnimatePresence>
+        {encourage && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            className="rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-200 leading-relaxed"
+          >
+            Recomeçar faz parte. O que importa é você ter voltado — um dia de cada vez. 💪
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <button
         type="button"
@@ -104,5 +153,6 @@ export default function StreakView({ habits, onSaveHabit, onDeleteHabit }: Props
         onClose={() => setSosFor(null)}
       />
     </div>
+    </StreakLockGate>
   );
 }
