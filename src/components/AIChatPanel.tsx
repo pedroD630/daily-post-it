@@ -15,6 +15,7 @@ import { AIProvider, ChatMessage, detectBestProvider, probeProviders, ProviderSt
 import { buildSystemPrompt, buildWelcomeMessage } from "../utils/aiPromptBuilder";
 import { getAIChatHistory, saveAIChatHistory, clearAIChatHistory, AIChatMessageRecord } from "../db";
 import { parseAIReply, ParsedCheckpoint } from "../utils/checkpointParser";
+import ConfirmSheet from "./ConfirmSheet";
 import { Flag, Plus } from "lucide-react";
 
 interface Props {
@@ -43,6 +44,7 @@ export default function AIChatPanel({ days, goals, pointsBalance, geminiApiKey, 
   // Transient checkpoint suggestions from the latest reply (until accepted).
   const [pendingCheckpoints, setPendingCheckpoints] = useState<ParsedCheckpoint[]>([]);
   const [addedTitles, setAddedTitles] = useState<Set<string>>(new Set());
+  const [confirmClear, setConfirmClear] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -187,8 +189,8 @@ export default function AIChatPanel({ days, goals, pointsBalance, geminiApiKey, 
 
   const send = () => void sendText(input);
 
-  const handleClear = async () => {
-    if (!window.confirm("Apagar toda a conversa com o Coach IA?")) return;
+  const doClear = async () => {
+    setConfirmClear(false);
     await clearAIChatHistory();
     setMessages([]);
     setError("");
@@ -226,7 +228,7 @@ export default function AIChatPanel({ days, goals, pointsBalance, geminiApiKey, 
           {messages.length > 0 && (
             <button
               type="button"
-              onClick={handleClear}
+              onClick={() => setConfirmClear(true)}
               aria-label="Limpar conversa"
               title="Limpar conversa"
               className="text-slate-400 hover:text-red-500 cursor-pointer"
@@ -322,6 +324,16 @@ export default function AIChatPanel({ days, goals, pointsBalance, geminiApiKey, 
           <Send className="w-4 h-4" />
         </button>
       </div>
+
+      <ConfirmSheet
+        open={confirmClear}
+        title="Apagar conversa com o Coach IA?"
+        message="Todo o histórico deste chat será removido deste dispositivo."
+        confirmLabel="Apagar"
+        danger
+        onConfirm={doClear}
+        onCancel={() => setConfirmClear(false)}
+      />
     </section>
   );
 }

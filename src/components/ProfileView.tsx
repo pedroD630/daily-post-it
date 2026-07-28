@@ -14,6 +14,7 @@ import {
 } from "../db/firebase";
 import { Day, AppView } from "../types";
 import { Calendar, Cloud, Database, Info, LogOut, ShieldAlert, Sparkles, User as UserIcon } from "lucide-react";
+import ConfirmSheet from "./ConfirmSheet";
 
 interface ProfileViewProps {
   historyDays: Day[];
@@ -31,6 +32,7 @@ export default function ProfileView({
   onViewChange
 }: ProfileViewProps) {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [calendarConnected, setCalendarConnectedState] = useState(isCalendarConnected());
   const [lastSyncedStr, setLastSyncedStr] = useState<string>("Synced just now");
   const [calendarCount, setCalendarCount] = useState<number | null>(null);
@@ -68,13 +70,12 @@ export default function ProfileView({
   };
 
   const handleSignOut = async () => {
-    if (window.confirm("Are you sure you want to sign out? Your notes will remain secure on this device.")) {
-      try {
-        await logout();
-        await onRefreshData();
-      } catch (err) {
-        console.error("Sign out failed:", err);
-      }
+    setConfirmSignOut(false);
+    try {
+      await logout();
+      await onRefreshData();
+    } catch (err) {
+      console.error("Sign out failed:", err);
     }
   };
 
@@ -279,7 +280,7 @@ export default function ProfileView({
       {/* Footer Navigation Buttons */}
       <div className="flex items-center gap-3 pt-4 border-t border-black/5" id="profile-action-footer">
         <button
-          onClick={handleSignOut}
+          onClick={() => setConfirmSignOut(true)}
           id="profile-btn-signout"
           aria-label="Sign out of account"
           className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-red-300/40 text-red-600 font-semibold text-xs hover:bg-red-50 hover:border-red-300 transition-all shadow-sm cursor-pointer"
@@ -297,6 +298,16 @@ export default function ProfileView({
           Back To Notes
         </button>
       </div>
+
+      <ConfirmSheet
+        open={confirmSignOut}
+        title="Sair da conta?"
+        message="Suas notas continuam salvas com segurança neste dispositivo."
+        confirmLabel="Sair"
+        danger
+        onConfirm={handleSignOut}
+        onCancel={() => setConfirmSignOut(false)}
+      />
     </div>
   );
 }

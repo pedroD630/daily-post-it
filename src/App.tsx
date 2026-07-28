@@ -26,6 +26,7 @@ import { Checkpoint, Habit } from "./types";
 import { ParsedCheckpoint } from "./utils/checkpointParser";
 import StreakView from "./components/StreakView";
 import SyncIndicator, { SyncState } from "./components/SyncIndicator";
+import ConfirmSheet from "./components/ConfirmSheet";
 import { Reward } from "./constants/rewards";
 import { Trash2, Plus, AlertCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -111,6 +112,9 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
   const [calendarExpired, setCalendarExpired] = useState(false);
+  const [reconnectError, setReconnectError] = useState(false);
+  // Service worker "update available" prompt (replaces window.confirm in main.tsx)
+  const [pendingWorker, setPendingWorker] = useState<ServiceWorker | null>(null);
 
   // Points & Rewards
   const [pointsBalance, setPointsBalance] = useState<number>(0);
@@ -163,6 +167,17 @@ export default function App() {
   useEffect(() => {
     document.documentElement.classList.toggle("liquid-glass", !!settings.liquidGlass);
   }, [settings.liquidGlass]);
+
+  // Service worker update prompt — surfaced as a styled sheet instead of the
+  // native window.confirm that main.tsx used to fire.
+  useEffect(() => {
+    const onUpdate = (e: Event) => {
+      const worker = (e as CustomEvent).detail as ServiceWorker | undefined;
+      if (worker) setPendingWorker(worker);
+    };
+    window.addEventListener("sw-update-available", onUpdate);
+    return () => window.removeEventListener("sw-update-available", onUpdate);
+  }, []);
 
   // Global keyboard shortcut: Ctrl/Cmd+K toggles the command palette
   useEffect(() => {
@@ -1228,6 +1243,17 @@ export default function App() {
       {/* Cloud sync status pill */}
       <SyncIndicator state={syncState} />
 
+      {/* Service worker update prompt */}
+      <ConfirmSheet
+        open={pendingWorker !== null}
+        title="Nova versão disponível"
+        message="Uma atualização do Daily Post-it está pronta. Atualizar agora?"
+        confirmLabel="Atualizar"
+        cancelLabel="Depois"
+        onConfirm={() => { pendingWorker?.postMessage("SKIP_WAITING"); setPendingWorker(null); }}
+        onCancel={() => setPendingWorker(null)}
+      />
+
       {/* Command Palette — Ctrl/Cmd+K or the navbar search button */}
       <CommandPalette
         open={paletteOpen}
@@ -1267,17 +1293,23 @@ export default function App() {
           </div>
           <button
             onClick={() => {
+              setReconnectError(false);
               reconnectGoogleCalendar()
                 .then((ok) => { if (ok) setCalendarExpired(false); })
                 .catch((err) => {
                   console.error("Reconnect popup failed:", err);
-                  window.alert("Popup blocked. Please allow popups or click Reconnect again.");
+                  setReconnectError(true);
                 });
             }}
             className="bg-amber-600 hover:bg-amber-700 text-white font-mono text-[9px] uppercase font-bold py-1 px-2.5 rounded shadow-sm transition-colors shrink-0"
           >
             Reconnect
           </button>
+        </div>
+      )}
+      {reconnectError && (
+        <div className="mx-auto -mt-1 mb-2 w-full max-w-md text-[11px] text-amber-800 dark:text-amber-300 px-3.5 text-center">
+          Popup bloqueado. Permita popups para este site e toque em Reconnect de novo.
         </div>
       )}
 
