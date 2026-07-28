@@ -7,7 +7,7 @@
  */
 
 import React from "react";
-import { Flame, Snowflake, Clock3 } from "lucide-react";
+import { Flame, Snowflake, Clock3, Sparkles } from "lucide-react";
 import { motion } from "motion/react";
 import { Day, Goal } from "../types";
 import {
@@ -27,6 +27,8 @@ interface GoalCardProps {
   goal: Goal;
   allDays: Day[];
   onClick?: () => void;
+  /** Ask the AI coach for steps toward this goal (seeds the chat). */
+  onAskSteps?: (goal: Goal) => void;
 }
 
 const TINT_BY_STATUS: Record<GoalStatus, string> = {
@@ -35,7 +37,7 @@ const TINT_BY_STATUS: Record<GoalStatus, string> = {
   cold:    "linear-gradient(135deg, rgba(70,130,200,0.20), rgba(70,130,200,0.04) 60%, transparent)",
 };
 
-export default function GoalCard({ goal, allDays, onClick }: GoalCardProps) {
+export default function GoalCard({ goal, allDays, onClick, onAskSteps }: GoalCardProps) {
   const weeklyTarget = toWeeklyTarget(goal.targetFrequency.amount, goal.targetFrequency.unit);
   const actual = actualWeeklyFrequency(goal, allDays);
   const status = getGoalStatus(actual, weeklyTarget);
@@ -52,12 +54,9 @@ export default function GoalCard({ goal, allDays, onClick }: GoalCardProps) {
     status === "hot" ? "#dc2626" : status === "cold" ? "#3b82f6" : "#94a3b8";
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <div
       id={`goal-card-${goal.id}`}
-      aria-label={`Open ${goal.title}`}
-      className="relative w-full text-left rounded-2xl p-4 border border-black/5 dark:border-white/10 shadow-sm hover:shadow-md transition-shadow cursor-pointer overflow-hidden"
+      className="relative w-full text-left rounded-2xl p-4 border border-black/5 dark:border-white/10 shadow-sm hover:shadow-md transition-shadow overflow-hidden"
       style={{
         backgroundColor: goal.baseColor,
         backgroundImage: TINT_BY_STATUS[status],
@@ -80,6 +79,15 @@ export default function GoalCard({ goal, allDays, onClick }: GoalCardProps) {
           positioned layer as the overlay above, and DOM order then puts
           them visually on top (CSS positioned-element painting rule). */}
       <div className="relative">
+
+      {/* Clickable body opens the goal editor. Kept separate from the
+          "ask AI" action so we avoid nesting interactive elements. */}
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={`Abrir ${goal.title}`}
+        className="block w-full text-left cursor-pointer"
+      >
 
       {/* Title row + status icon */}
       <div className="flex items-start justify-between gap-3 mb-1">
@@ -134,7 +142,21 @@ export default function GoalCard({ goal, allDays, onClick }: GoalCardProps) {
         {status === "cold" && <span className="text-[10px] font-mono text-blue-600 font-bold">falling behind</span>}
       </div>
 
+      </button>
+
+      {/* Discoverable entry point to the AI checkpoint flow */}
+      {onAskSteps && !goal.archived && (
+        <button
+          type="button"
+          onClick={() => onAskSteps(goal)}
+          className="mt-2.5 flex items-center gap-1.5 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 bg-white/60 dark:bg-slate-900/40 hover:bg-white/90 dark:hover:bg-slate-900/70 border border-indigo-200/60 dark:border-indigo-800/40 rounded-lg px-2.5 py-1.5 cursor-pointer transition-colors"
+        >
+          <Sparkles className="w-3.5 h-3.5" />
+          Pedir etapas à IA
+        </button>
+      )}
+
       </div>{/* /content wrapper */}
-    </button>
+    </div>
   );
 }

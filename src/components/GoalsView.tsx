@@ -55,6 +55,13 @@ export default function GoalsView({
     setTab("insights");
   };
 
+  const askSteps = (goal: Goal) => {
+    setChatSeed(
+      `Quais deveriam ser as etapas (checkpoints) para eu atingir a meta "${goal.title}"? Proponha marcos concretos e mensuráveis.`
+    );
+    setTab("insights");
+  };
+
   const active = useMemo(() => goals.filter((g) => !g.archived), [goals]);
   const archived = useMemo(() => goals.filter((g) => g.archived), [goals]);
   const canCreateMore = active.length < MAX_ACTIVE_GOALS;
@@ -154,7 +161,7 @@ export default function GoalsView({
               </div>
             )}
             {active.map((g) => (
-              <GoalCard key={g.id} goal={g} allDays={allDays} onClick={() => openEdit(g)} />
+              <GoalCard key={g.id} goal={g} allDays={allDays} onClick={() => openEdit(g)} onAskSteps={askSteps} />
             ))}
 
             {/* Archived section (collapsible) */}
