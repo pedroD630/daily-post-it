@@ -25,6 +25,7 @@ import { syncPointsBalanceToSupabase, pullPointsBalanceFromSupabase, syncGoalToS
 import { Checkpoint, Habit } from "./types";
 import { ParsedCheckpoint } from "./utils/checkpointParser";
 import StreakView from "./components/StreakView";
+import SyncIndicator, { SyncState } from "./components/SyncIndicator";
 import { Reward } from "./constants/rewards";
 import { Trash2, Plus, AlertCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -339,11 +340,17 @@ export default function App() {
   //   4. Re-read everything from IDB into React state.
   const isRefreshingRef = useRef(false);
   const lastRefreshAtRef = useRef(0);
+  const [syncState, setSyncState] = useState<SyncState>("idle");
 
   const refreshFromCloud = async (uid: string, opts: { force?: boolean } = {}) => {
     if (isRefreshingRef.current) return;
     if (!opts.force && Date.now() - lastRefreshAtRef.current < 5_000) return; // throttle
     isRefreshingRef.current = true;
+    if (!navigator.onLine) {
+      setSyncState("offline");
+    } else {
+      setSyncState("syncing");
+    }
     try {
       if (navigator.onLine) {
         try {
@@ -437,6 +444,9 @@ export default function App() {
       }
       await loadInitialData();
       lastRefreshAtRef.current = Date.now();
+      setSyncState(navigator.onLine ? "synced" : "offline");
+    } catch {
+      setSyncState(navigator.onLine ? "idle" : "offline");
     } finally {
       isRefreshingRef.current = false;
     }
@@ -1214,6 +1224,9 @@ export default function App() {
         currentUserPhoto={currentUser?.photoURL}
         onOpenPalette={() => setPaletteOpen(true)}
       />
+
+      {/* Cloud sync status pill */}
+      <SyncIndicator state={syncState} />
 
       {/* Command Palette — Ctrl/Cmd+K or the navbar search button */}
       <CommandPalette
