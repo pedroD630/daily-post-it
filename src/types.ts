@@ -3,6 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+/** A micro-step inside a composite task's checklist. */
+export interface SubTask {
+  id: string;
+  text: string;
+  completed: boolean;
+}
+
 export interface Task {
   id: string;            // unique identifier (e.g. crypto.randomUUID())
   text: string;
@@ -18,6 +25,11 @@ export interface Task {
   calendarEventId?: string;
   time?: string;          // optional HH:MM time
   reminderMinutes?: number; // default options: 10 | 30 | 60 | 1440
+  /**
+   * Checklist of micro-steps. When present and all are completed, the parent
+   * task auto-completes. Hidden by default; toggled open in the TaskItem.
+   */
+  subtasks?: SubTask[];
 }
 
 export interface Day {

@@ -85,13 +85,20 @@ export async function syncDayToSupabase(day: Day, userId: string): Promise<boole
         created_at: task.createdAt,
         sort_order: task.order !== undefined ? task.order : 0,
         pen_color: task.style?.penColor || "#1f2937",
-        font_family: task.style?.fontFamily || "sans-serif"
+        font_family: task.style?.fontFamily || "sans-serif",
+        subtasks: task.subtasks ?? null
       }));
 
       // Atomic Upsert tasks
-      const { error: tasksErr } = await supabase.from("tasks").upsert(dbTasks, {
+      let { error: tasksErr } = await supabase.from("tasks").upsert(dbTasks, {
         onConflict: "id"
       });
+      // Fallback if the `subtasks` column migration (010) hasn't been run.
+      if (tasksErr && (tasksErr.code === "PGRST204" || /subtasks/i.test(tasksErr.message || ""))) {
+        console.warn("Supabase 'subtasks' column missing — run migration 010_task_subtasks.sql. Syncing without it.");
+        const stripped = dbTasks.map(({ subtasks, ...rest }) => rest);
+        ({ error: tasksErr } = await supabase.from("tasks").upsert(stripped, { onConflict: "id" }));
+      }
       if (tasksErr) throw tasksErr;
 
       // 3. Remove tasks that are no longer in the list (deleted locally)
@@ -247,7 +254,8 @@ export async function pullAllDaysFromSupabase(userId: string): Promise<Day[]> {
           style: {
             penColor: t.pen_color || "#1f2937",
             fontFamily: t.font_family || "sans-serif"
-          }
+          },
+          subtasks: Array.isArray(t.subtasks) ? t.subtasks : undefined
         });
       }
     });

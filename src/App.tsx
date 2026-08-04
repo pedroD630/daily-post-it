@@ -911,6 +911,34 @@ export default function App() {
     await saveDayWithSync(updatedDay);
   };
 
+  // Composite-task checklist: persist micro-steps and auto-complete the
+  // parent task when every step is checked (and revert if a step is
+  // unchecked while it was auto-completed). Points are derived from
+  // completed tasks, so no ledger write is needed — the balance follows.
+  const handleSubtasksChange = async (taskId: string, subtasks: import("./types").SubTask[]) => {
+    if (!todayDay) return;
+    const updatedTasks = todayDay.tasks.map((t) => {
+      if (t.id !== taskId) return t;
+      const hasSubs = subtasks.length > 0;
+      const allDone = hasSubs && subtasks.every((s) => s.completed);
+      const next: Task = { ...t, subtasks };
+      if (hasSubs) {
+        // Parent completion mirrors the checklist while it has steps.
+        if (allDone && !t.completed) { next.completed = true; next.completedAt = Date.now(); }
+        else if (!allDone && t.completed) { next.completed = false; next.completedAt = null; }
+      }
+      return next;
+    });
+    const updatedDay = touch({ ...todayDay, tasks: updatedTasks });
+    setTodayDay(updatedDay);
+    await saveDay(updatedDay);
+    if (auth.currentUser) {
+      syncDayToCloud(updatedDay).catch((err) =>
+        console.error(`Background day sync failed for ${updatedDay.id}:`, err)
+      );
+    }
+  };
+
   // Day-note scratchpad commit (fires on textarea blur)
   const handleNoteChange = async (note: string) => {
     if (!todayDay) return;
@@ -1382,6 +1410,7 @@ export default function App() {
                     onTimeChange={handleTimeChange}
                     onDelete={handleDeleteTask}
                     onReorderTasks={handleReorderTasks}
+                    onSubtasksChange={handleSubtasksChange}
                     readOnly={false}
                     activeDeleteId={activeDeleteId}
                     setActiveDeleteId={setActiveDeleteId}

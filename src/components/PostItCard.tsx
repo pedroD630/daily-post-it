@@ -20,6 +20,7 @@ interface PostItCardProps {
   onTextChangeFinished?: (id: string, text: string) => void;
   onTimeChange?: (id: string, time: string | undefined, reminderMinutes: number) => void;
   onDelete?: (id: string) => void;
+  onSubtasksChange?: (id: string, subtasks: import("../types").SubTask[]) => void;
   onReorderTasks?: (tasks: Task[]) => void;
   readOnly?: boolean;
   activeDeleteId: string | null;
@@ -56,6 +57,7 @@ export default function PostItCard({
   onTextChangeFinished,
   onTimeChange,
   onDelete = (id: string) => {},
+  onSubtasksChange,
   onReorderTasks,
   readOnly = false,
   activeDeleteId,
@@ -261,6 +263,7 @@ export default function PostItCard({
                 onTextChangeFinished={onTextChangeFinished}
                 onTimeChange={onTimeChange}
                 onDelete={onDelete}
+                onSubtasksChange={onSubtasksChange}
                 readOnly={readOnly}
                 isNew={false}
                 activeDeleteId={activeDeleteId}
@@ -289,6 +292,7 @@ export default function PostItCard({
                       onTextChangeFinished={onTextChangeFinished}
                       onTimeChange={onTimeChange}
                       onDelete={onDelete}
+                      onSubtasksChange={onSubtasksChange}
                       readOnly={readOnly}
                       isNew={isNew}
                       activeDeleteId={activeDeleteId}

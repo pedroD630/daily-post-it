@@ -4,8 +4,8 @@
  */
 
 import React, { useState, useEffect, useRef } from "react";
-import { Check, X, GripVertical, Clock } from "lucide-react";
-import { Task } from "../types";
+import { Check, X, GripVertical, Clock, Plus, ChevronRight } from "lucide-react";
+import { Task, SubTask } from "../types";
 import { motion, Reorder, useDragControls } from "motion/react";
 import { pointValue } from "../utils/points";
 import PointsFloat from "./PointsFloat";
@@ -18,6 +18,8 @@ interface TaskItemProps {
   onTextChangeFinished?: (id: string, text: string) => void;
   onTimeChange?: (id: string, time: string | undefined, reminderMinutes: number) => void;
   onDelete?: (id: string) => void;
+  /** Persist the checklist of micro-steps for a composite task. */
+  onSubtasksChange?: (id: string, subtasks: SubTask[]) => void;
   readOnly?: boolean;
   isNew?: boolean;
   activeDeleteId: string | null;
@@ -31,6 +33,7 @@ export default function TaskItem({
   onTextChangeFinished,
   onTimeChange,
   onDelete = (id: string) => {},
+  onSubtasksChange,
   readOnly = false,
   isNew = false,
   activeDeleteId,
@@ -56,6 +59,39 @@ export default function TaskItem({
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [localTime, setLocalTime] = useState(task.time);
   const [localReminder, setLocalReminder] = useState(task.reminderMinutes || 10);
+
+  // Composite-task checklist (micro-steps). Collapsed by default; reveals on ">".
+  const [subs, setSubs] = useState<SubTask[]>(task.subtasks ?? []);
+  const [showSubs, setShowSubs] = useState(false);
+  const [newSubText, setNewSubText] = useState("");
+  useEffect(() => {
+    setSubs(task.subtasks ?? []);
+  }, [task.subtasks]);
+
+  const doneSubs = subs.filter((s) => s.completed).length;
+
+  const commitSubs = (next: SubTask[]) => {
+    setSubs(next);
+    onSubtasksChange?.(task.id, next);
+  };
+  const addSub = (text: string) => {
+    const t = text.trim();
+    if (!t) return;
+    commitSubs([...subs, { id: crypto.randomUUID(), text: t, completed: false }]);
+  };
+  const toggleSub = (id: string) =>
+    commitSubs(subs.map((s) => (s.id === id ? { ...s, completed: !s.completed } : s)));
+  const editSub = (id: string, text: string) =>
+    commitSubs(subs.map((s) => (s.id === id ? { ...s, text } : s)));
+  const removeSub = (id: string) => commitSubs(subs.filter((s) => s.id !== id));
+
+  const openChecklist = () => {
+    setShowSubs(true);
+    if (subs.length === 0) {
+      // First "+" click: create one empty step so the user can type right away.
+      commitSubs([{ id: crypto.randomUUID(), text: "", completed: false }]);
+    }
+  };
 
   // Floating "+10 / -10" feedback near the checkbox. Cleared by a timer
   // so the same value can re-trigger via key change.
@@ -307,9 +343,34 @@ export default function TaskItem({
           )}
         </div>
 
+        {/* Subtasks toggle (>) — shows when the task has micro-steps */}
+        {subs.length > 0 && (
+          <button
+            type="button"
+            aria-label={showSubs ? "Ocultar micropassos" : "Mostrar micropassos"}
+            title={`${doneSubs}/${subs.length} micropassos`}
+            onClick={(e) => { e.stopPropagation(); setShowSubs((v) => !v); }}
+            className="flex items-center gap-0.5 ml-1 shrink-0 text-slate-500 opacity-70 hover:opacity-100 cursor-pointer select-none"
+          >
+            <ChevronRight className={`w-3.5 h-3.5 stroke-[2.4] transition-transform ${showSubs ? "rotate-90" : ""}`} />
+            <span className="font-mono text-[9px] tabular-nums">{doneSubs}/{subs.length}</span>
+          </button>
+        )}
+
         {/* Alarm Clock Trigger */}
         {!readOnly && (
           <div className="flex items-center gap-1.5 ml-2 mr-1 z-25 shrink-0 select-none">
+            {/* "+" to create / open the micro-steps checklist */}
+            <button
+              id={`task-addsub-${task.id}`}
+              type="button"
+              aria-label="Adicionar micropasso"
+              title="Adicionar micropasso"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); openChecklist(); }}
+              className="p-1 rounded-full text-slate-700 opacity-60 hover:opacity-100 hover:scale-105 transition-all focus:outline-none"
+            >
+              <Plus className="w-3.5 h-3.5 stroke-[2.4]" />
+            </button>
             <button
               id={`task-alarm-${task.id}`}
               type="button"
@@ -373,6 +434,82 @@ export default function TaskItem({
                 Clear
               </button>
             </>
+          )}
+        </div>
+      )}
+
+      {/* Micro-steps checklist. Collapsed by default (revealed via ">") — kept
+          out of the way so the post-it stays light. When every step is
+          checked, App auto-completes the parent task. */}
+      {subs.length > 0 && showSubs && (
+        <div
+          id={`task-subtasks-panel-${task.id}`}
+          className="mt-1.5 ml-8 pl-3 border-l-2 border-black/10 flex flex-col gap-1 select-text"
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        >
+          {subs.map((s) => (
+            <div key={s.id} className="flex items-center gap-2 group/sub">
+              <button
+                type="button"
+                disabled={readOnly}
+                aria-label={s.completed ? "Desmarcar micropasso" : "Marcar micropasso"}
+                onClick={(e) => { e.stopPropagation(); toggleSub(s.id); }}
+                className="shrink-0 flex items-center justify-center w-4 h-4 rounded border-2 cursor-pointer"
+                style={{
+                  borderColor: task.style.penColor,
+                  backgroundColor: s.completed ? task.style.penColor : "transparent",
+                }}
+              >
+                {s.completed && <Check className="w-2.5 h-2.5 text-white stroke-[3.5]" />}
+              </button>
+              {readOnly ? (
+                <span className={`flex-1 text-sm ${getFontClass(task.style.fontFamily)} ${s.completed ? "line-through opacity-50" : ""}`} style={{ color: task.style.penColor }}>
+                  {s.text}
+                </span>
+              ) : (
+                <input
+                  type="text"
+                  value={s.text}
+                  placeholder="Micropasso…"
+                  onChange={(e) => editSub(s.id, e.target.value)}
+                  className={`flex-1 bg-transparent border-none p-0 text-sm focus:outline-none ${getFontClass(task.style.fontFamily)} ${s.completed ? "line-through opacity-50" : ""}`}
+                  style={{ color: task.style.penColor, caretColor: task.style.penColor }}
+                />
+              )}
+              {!readOnly && (
+                <button
+                  type="button"
+                  aria-label="Remover micropasso"
+                  onClick={(e) => { e.stopPropagation(); removeSub(s.id); }}
+                  className="shrink-0 text-slate-300 hover:text-red-500 opacity-0 group-hover/sub:opacity-100 transition-opacity cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          ))}
+
+          {!readOnly && (
+            <div className="flex items-center gap-2 mt-0.5 opacity-70">
+              <Plus className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <input
+                type="text"
+                value={newSubText}
+                placeholder="Adicionar micropasso…"
+                onChange={(e) => setNewSubText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addSub(newSubText);
+                    setNewSubText("");
+                  }
+                }}
+                onBlur={() => { if (newSubText.trim()) { addSub(newSubText); setNewSubText(""); } }}
+                className="flex-1 bg-transparent border-none p-0 text-sm text-slate-500 placeholder:text-slate-400/60 focus:outline-none"
+              />
+            </div>
           )}
         </div>
       )}
