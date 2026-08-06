@@ -17,6 +17,8 @@ import { dailyActionsForGoal } from "../utils/goalFrequency";
 import { generateSuggestions } from "../utils/goalSuggestions";
 import AIChatPanel from "./AIChatPanel";
 import { ParsedCheckpoint } from "../utils/checkpointParser";
+import KeywordPieChart from "./insights/KeywordPieChart";
+import ProductivityLineChart from "./insights/ProductivityLineChart";
 
 interface GoalsInsightsPanelProps {
   goals: Goal[];        // include archived for historical charts
@@ -49,6 +51,17 @@ export default function GoalsInsightsPanel({ goals, allDays, pointsBalance, gemi
     />
   );
 
+  // Data-driven charts (keyword frequency + productivity) depend only on the
+  // task history, so they render whether or not any goals exist.
+  const enhancedCharts = (
+    <>
+      <hr className="border-slate-200/60 dark:border-slate-800/60" />
+      <KeywordPieChart allDays={allDays} />
+      <hr className="border-slate-200/60 dark:border-slate-800/60" />
+      <ProductivityLineChart allDays={allDays} />
+    </>
+  );
+
   if (goals.length === 0) {
     return (
       <div className="flex flex-col gap-4">
@@ -57,6 +70,7 @@ export default function GoalsInsightsPanel({ goals, allDays, pointsBalance, gemi
           <BarChart3 className="w-8 h-8 text-slate-400 mb-2" />
           <p className="text-sm text-slate-500">No goals yet. Add one in the Goals tab to start tracking.</p>
         </div>
+        {enhancedCharts}
       </div>
     );
   }
@@ -92,6 +106,8 @@ export default function GoalsInsightsPanel({ goals, allDays, pointsBalance, gemi
       {goals.map((goal) => (
         <GoalChartCard key={goal.id} goal={goal} allDays={allDays} />
       ))}
+
+      {enhancedCharts}
     </div>
   );
 }
