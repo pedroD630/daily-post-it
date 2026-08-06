@@ -172,7 +172,7 @@ Deno.serve(async (req) => {
     generationConfig: {
       temperature: 0.7,
       topP: 0.9,
-      maxOutputTokens: 500,
+      maxOutputTokens: 2048,
     },
     // Safety: block only high-confidence unsafe content to avoid false positives.
     safetySettings: [

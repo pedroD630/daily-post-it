@@ -94,7 +94,7 @@ export function buildSystemPrompt(days: Day[], goals: Goal[], pointsBalance: num
     "- Responder perguntas de acompanhamento do usuário sobre os próprios dados.",
     "",
     "Regras de estilo:",
-    "- Respostas curtas e diretas: 2 a 5 frases por padrão, só se estenda se o usuário pedir detalhes.",
+    "- Desenvolva o raciocínio: normalmente 2 a 4 parágrafos, aprofundando análise e recomendações. Use listas ou passos numerados quando ajudar a organizar. Seja completo, mas sem encher linguiça.",
     "- Português do Brasil, tom direto e prático, no máximo 1 emoji por resposta.",
     "- Nunca invente números — use apenas o que está nos dados abaixo.",
     "- Se um dado está vazio ou zerado, diga isso honestamente em vez de inventar.",

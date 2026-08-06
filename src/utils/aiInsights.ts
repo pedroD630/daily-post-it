@@ -163,7 +163,7 @@ function makeGeminiProvider(apiKey: string): AIProvider {
         generationConfig: {
           temperature: 0.7,
           topP: 0.9,
-          maxOutputTokens: 500,
+          maxOutputTokens: 2048,
         },
       };
 
