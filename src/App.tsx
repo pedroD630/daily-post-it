@@ -1645,6 +1645,8 @@ export default function App() {
                 allDays={allDays}
                 onSaveBelief={handleSaveBelief}
                 onDeleteBelief={handleDeleteBelief}
+                onOpenAffirmations={() => setAffirmationEditorOpen(true)}
+                affirmationCount={affirmations.length}
               />
             )}
 
@@ -1654,8 +1656,6 @@ export default function App() {
                 onSave={handleSaveSettings}
                 onCancel={handleCancelSettings}
                 onColorChangeLive={setLivePostItColor}
-                onOpenAffirmations={() => setAffirmationEditorOpen(true)}
-                affirmationCount={affirmations.length}
               />
             )}
 

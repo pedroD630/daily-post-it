@@ -7,7 +7,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Settings as SettingsType, AppView, ThemeMode } from "../types";
 import { PEN_PRESETS } from "../constants/colors";
 import { PALETTES, getPaletteById } from "../constants/palettes";
-import { Save, AlertCircle, Settings as SettingsIcon, SunMedium, Moon, MonitorSmartphone, Sparkles, Eye, EyeOff, ChevronDown, ChevronUp, CheckCircle2, XCircle, Loader2, Sunrise } from "lucide-react";
+import { Save, AlertCircle, Settings as SettingsIcon, SunMedium, Moon, MonitorSmartphone, Sparkles, Eye, EyeOff, ChevronDown, ChevronUp, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { validateGeminiKey } from "../utils/aiInsights";
 
 interface SettingsViewProps {
@@ -16,10 +16,6 @@ interface SettingsViewProps {
   onCancel: () => void;
   // A callback to update parent state in real time as the user drags
   onColorChangeLive: (color: string) => void;
-  /** Opens the affirmations editor. The morning/evening modal is not the
-   *  only way in — affirmations must be editable at any hour. */
-  onOpenAffirmations?: () => void;
-  affirmationCount?: number;
 }
 
 // HSL to hex converter
@@ -107,8 +103,6 @@ export default function SettingsView({
   onSave,
   onCancel,
   onColorChangeLive,
-  onOpenAffirmations,
-  affirmationCount = 0,
 }: SettingsViewProps) {
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     appearance: true, writing: false, effects: false,
@@ -601,37 +595,6 @@ export default function SettingsView({
         </div>
 
         </SettingsGroup>
-
-        {/* Section 4c: Daily affirmations. Reachable at any hour — the
-            morning/evening modal only exists inside its time windows. */}
-        {onOpenAffirmations && (
-          <div className="flex flex-col gap-2" id="settings-section-affirmations">
-            <div className="flex items-center gap-2">
-              <Sunrise className="w-4 h-4 text-amber-500" />
-              <label className="font-sans text-xs font-bold uppercase tracking-wider text-slate-500">
-                Afirmações diárias
-              </label>
-            </div>
-            <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
-              Suas afirmações aparecem ao abrir o app de manhã (06h–12h) e à noite (18h–24h).
-              Elas são só suas — ficam na sua conta e ninguém mais vê.
-            </p>
-            <button
-              type="button"
-              onClick={onOpenAffirmations}
-              className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer text-left"
-            >
-              <span className="text-sm text-slate-700 dark:text-slate-200 font-medium">
-                {affirmationCount === 0
-                  ? "Escrever minhas afirmações"
-                  : `Editar minhas afirmações`}
-              </span>
-              <span className="font-mono text-[11px] text-slate-400 tabular-nums shrink-0">
-                {affirmationCount === 0 ? "nenhuma" : `${affirmationCount}`}
-              </span>
-            </button>
-          </div>
-        )}
 
         {/* Section 5: AI Insights (advanced / opt-in). Chrome Built-in AI runs
             without a key; other browsers can paste a free Gemini API key. */}
