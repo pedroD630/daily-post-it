@@ -12,6 +12,7 @@ import { PostItPaperTexture } from "./PostItPaperTexture";
 import ConfettiBurst from "./ConfettiBurst";
 import type { PaperTextureConfig } from "../constants/palettes";
 import { formatBalance } from "../utils/points";
+import { FEATURES } from "../constants/features";
 
 interface PostItCardProps {
   day: Day;
@@ -422,7 +423,7 @@ export default function PostItCard({
 
       {/* Points balance indicator — bottom-left of the post-it.
           Subtle when positive, bold red when in the negative. */}
-      {pointsBalance !== undefined && (
+      {FEATURES.shop && pointsBalance !== undefined && (
         <div
           id="postit-points-balance"
           className={`absolute bottom-2 left-3 z-10 flex items-center gap-1 font-mono text-[11px] select-none pointer-events-none ${

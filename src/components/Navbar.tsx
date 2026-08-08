@@ -6,6 +6,7 @@
 import React from "react";
 import { History, Plus, ShoppingBag, LayoutGrid } from "lucide-react";
 import { AppView } from "../types";
+import { FEATURES } from "../constants/features";
 
 interface NavbarProps {
   currentView: AppView;
@@ -63,15 +64,17 @@ export default function Navbar({ currentView, onViewChange, currentUserPhoto, on
           <Plus className="w-6 h-6 stroke-[2.5]" />
         </button>
 
-        {/* Shop */}
-        <button
-          id="nav-btn-shop"
-          aria-label="View reward shop"
-          onClick={() => onViewChange("shop")}
-          className={itemClass(currentView === "shop")}
-        >
-          <ShoppingBag className="w-5 h-5" />
-        </button>
+        {/* Shop — hidden while FEATURES.shop is off (nothing removed) */}
+        {FEATURES.shop && (
+          <button
+            id="nav-btn-shop"
+            aria-label="View reward shop"
+            onClick={() => onViewChange("shop")}
+            className={itemClass(currentView === "shop")}
+          >
+            <ShoppingBag className="w-5 h-5" />
+          </button>
+        )}
 
         {/* Profile (Settings agora vive aqui dentro) */}
         <button
