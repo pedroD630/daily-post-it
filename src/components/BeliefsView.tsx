@@ -7,7 +7,7 @@
  */
 
 import React, { useMemo, useState } from "react";
-import { Plus, Brain } from "lucide-react";
+import { Plus, Brain, Sunrise } from "lucide-react";
 import { Belief, Day } from "../types";
 import { countEvidenceForBeliefs } from "../utils/beliefProgress";
 import BeliefCard from "./BeliefCard";
@@ -18,9 +18,14 @@ interface Props {
   allDays: Day[];
   onSaveBelief: (belief: Belief) => void;
   onDeleteBelief: (id: string) => void;
+  /** Opens the affirmations editor. Lives here rather than in Settings:
+   *  affirmations and beliefs are the same practice, and the morning/evening
+   *  modal only exists inside its time windows. */
+  onOpenAffirmations?: () => void;
+  affirmationCount?: number;
 }
 
-export default function BeliefsView({ beliefs, allDays, onSaveBelief, onDeleteBelief }: Props) {
+export default function BeliefsView({ beliefs, allDays, onSaveBelief, onDeleteBelief, onOpenAffirmations, affirmationCount = 0 }: Props) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editing, setEditing] = useState<Belief | null>(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -61,6 +66,29 @@ export default function BeliefsView({ beliefs, allDays, onSaveBelief, onDeleteBe
         Cada tarefa concluída que contenha uma palavra-chave vira uma evidência
         contra a crença negativa. Com 30 evidências, ela se quebra.
       </p>
+
+      {/* Daily affirmations — reachable at any hour, unlike the modal */}
+      {onOpenAffirmations && (
+        <button
+          type="button"
+          id="beliefs-affirmations-entry"
+          onClick={onOpenAffirmations}
+          className="flex items-center gap-3 text-left bg-white/80 dark:bg-slate-900/80 backdrop-blur-lg border border-white/40 dark:border-slate-800/60 rounded-2xl p-4 shadow-sm hover:border-amber-300 dark:hover:border-amber-800 cursor-pointer"
+        >
+          <Sunrise className="w-5 h-5 text-amber-500 shrink-0" />
+          <span className="flex-1 min-w-0">
+            <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100">
+              {affirmationCount === 0 ? "Escrever minhas afirmações" : "Minhas afirmações"}
+            </span>
+            <span className="block text-[11px] text-slate-500 dark:text-slate-400 leading-snug mt-0.5">
+              Aparecem ao abrir o app de manhã (06h–12h) e à noite (18h–24h). São só suas.
+            </span>
+          </span>
+          <span className="font-mono text-[11px] text-slate-400 tabular-nums shrink-0">
+            {affirmationCount === 0 ? "nenhuma" : affirmationCount}
+          </span>
+        </button>
+      )}
 
       {archivedCount > 0 && (
         <button
