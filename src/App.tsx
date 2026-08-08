@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Day, Task, Settings, AppView, ThemeMode, Goal } from "./types";
-import { getSettings, saveSettings, getDay, saveDay, getAllDays, getBalance, getBalanceMeta, applyPointsDelta, setBalance, getAllGoals, saveGoal, deleteGoalLocal, getAllCheckpoints, saveCheckpoint, deleteCheckpointLocal, getAllHabits, saveHabit, getAllBeliefs, saveBelief, seedBeliefsIfEmpty, getAffirmationsOrSeed, saveAffirmations, saveAffirmationList } from "./db";
+import { getSettings, saveSettings, getDay, saveDay, getAllDays, getBalance, getBalanceMeta, applyPointsDelta, setBalance, getAllGoals, saveGoal, deleteGoalLocal, getAllCheckpoints, saveCheckpoint, deleteCheckpointLocal, getAllHabits, saveHabit, getAllBeliefs, saveBelief, seedBeliefsIfEmpty, getAffirmations, saveAffirmations, saveAffirmationList } from "./db";
 import { DEFAULT_SETTINGS } from "./db";
 import Navbar from "./components/Navbar";
 import PostItCard from "./components/PostItCard";
@@ -24,6 +24,7 @@ import { syncPointsBalanceToSupabase, pullPointsBalanceFromSupabase, syncGoalToS
 import { Belief, Checkpoint, Habit } from "./types";
 import BeliefsView from "./components/BeliefsView";
 import AffirmationModal from "./components/AffirmationModal";
+import AffirmationEditor from "./components/AffirmationEditor";
 import { AffirmationSession, getPendingSession, markSessionDone } from "./utils/affirmationScheduler";
 import { ParsedCheckpoint } from "./utils/checkpointParser";
 import SyncIndicator, { SyncState } from "./components/SyncIndicator";
@@ -134,6 +135,8 @@ export default function App() {
   const [affirmations, setAffirmations] = useState<string[]>([]);
   const [pendingSession, setPendingSession] = useState<AffirmationSession | null>(null);
   const [affirmationOpen, setAffirmationOpen] = useState(false);
+  // Editor opened straight from Settings, independently of the time windows.
+  const [affirmationEditorOpen, setAffirmationEditorOpen] = useState(false);
 
   // Command palette + cross-view navigation helpers
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -155,11 +158,23 @@ export default function App() {
 
   // Daily affirmations: on launch, decide whether a session is due. The modal
   // waits for the first-run tour to finish so the two never stack up.
+  const affirmationAutoOpenedRef = useRef(false);
   useEffect(() => {
+    // Nothing written yet? Then there is nothing to prompt for. Setup lives in
+    // Settings — we don't nag twice a day with a blank screen.
+    if (affirmations.length === 0) {
+      setPendingSession(null);
+      return;
+    }
     const session = getPendingSession();
     setPendingSession(session);
-    if (session && !showOnboarding) setAffirmationOpen(true);
-  }, [showOnboarding]);
+    // Auto-open only once per app load, so writing your first affirmations
+    // from Settings at 10am doesn't immediately throw the modal in your face.
+    if (session && !showOnboarding && !affirmationAutoOpenedRef.current) {
+      affirmationAutoOpenedRef.current = true;
+      setAffirmationOpen(true);
+    }
+  }, [showOnboarding, affirmations.length]);
 
   /**
    * Adjust the balance: writes to IDB, updates state, and (if logged in)
@@ -301,7 +316,7 @@ export default function App() {
       const allBeliefs = await seedBeliefsIfEmpty();
       setBeliefs(allBeliefs.filter((b) => !b.deleted));
 
-      const affList = await getAffirmationsOrSeed();
+      const affList = await getAffirmations();
       setAffirmations(affList.items);
     } catch (err) {
       console.error("Failed to load initial data from IndexedDB:", err);
@@ -516,7 +531,7 @@ export default function App() {
         try {
           // Affirmations are one row — plain last-write-wins on updatedAt.
           const cloudAff = await pullAffirmationsFromSupabase(uid);
-          const localAff = await getAffirmationsOrSeed();
+          const localAff = await getAffirmations();
           if (cloudAff && (cloudAff.updatedAt ?? 0) > (localAff.updatedAt ?? 0)) {
             await saveAffirmationList(cloudAff);
           } else if ((localAff.updatedAt ?? 0) > (cloudAff?.updatedAt ?? 0)) {
@@ -1398,6 +1413,14 @@ export default function App() {
         />
       )}
 
+      {/* Same editor, reachable from Settings at any hour */}
+      <AffirmationEditor
+        open={affirmationEditorOpen}
+        items={affirmations}
+        onClose={() => setAffirmationEditorOpen(false)}
+        onSave={(items) => { void handleSaveAffirmations(items); setAffirmationEditorOpen(false); }}
+      />
+
       {/* First-run onboarding tour */}
       {showOnboarding && <OnboardingTour onDone={() => setShowOnboarding(false)} />}
 
@@ -1631,6 +1654,8 @@ export default function App() {
                 onSave={handleSaveSettings}
                 onCancel={handleCancelSettings}
                 onColorChangeLive={setLivePostItColor}
+                onOpenAffirmations={() => setAffirmationEditorOpen(true)}
+                affirmationCount={affirmations.length}
               />
             )}
 

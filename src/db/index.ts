@@ -19,14 +19,24 @@ const POINTS_BALANCE_KEY = "balance";
 const AI_CHAT_KEY = "default";
 const BELIEFS_SEEDED_KEY = "beliefs_seeded_v1";
 const AFFIRMATIONS_KEY = "list";
-const AFFIRMATIONS_SEEDED_KEY = "affirmations_seeded_v1";
 
-export const DEFAULT_AFFIRMATIONS: string[] = [
+/**
+ * Optional starting points, offered one by one inside the editor.
+ *
+ * Deliberately NOT seeded into anyone's list. An affirmation is something
+ * the person has to mean — shipping a fixed set and writing it into every
+ * account presents one person's words as if they were universal. Nothing
+ * lands in a user's list until they tap it themselves.
+ *
+ * Kept deliberately neutral for the same reason: anything tied to a
+ * specific faith, family situation or diagnosis belongs to whoever writes
+ * it, not to a default.
+ */
+export const SUGGESTED_AFFIRMATIONS: string[] = [
   "Meu valor é maior do que meu pior comportamento.",
   "Posso errar sem desistir.",
   "Meu cérebro pode aprender novos caminhos.",
   "Não preciso resolver toda minha vida hoje.",
-  "Deus conhece minha luta melhor do que qualquer outra pessoa.",
   "Posso construir uma vida alinhada aos meus valores.",
   "Hoje escolho dar apenas o próximo passo.",
 ];
@@ -555,18 +565,8 @@ export async function saveAffirmations(items: string[]): Promise<AffirmationList
   return list;
 }
 
-/**
- * Returns the stored affirmations, seeding the defaults the first time.
- * Guarded by a flag as well as emptiness so a user who deletes them all
- * doesn't get the defaults back on the next launch.
- */
-export async function getAffirmationsOrSeed(): Promise<AffirmationList> {
+/** The user's affirmations, or an empty list if they haven't written any. */
+export async function getAffirmations(): Promise<AffirmationList> {
   const existing = await getAffirmationList();
-  if (existing) return existing;
-  if (localStorage.getItem(AFFIRMATIONS_SEEDED_KEY) === "done") {
-    return { id: AFFIRMATIONS_KEY, items: [], updatedAt: 0 };
-  }
-  const seeded = await saveAffirmations(DEFAULT_AFFIRMATIONS);
-  localStorage.setItem(AFFIRMATIONS_SEEDED_KEY, "done");
-  return seeded;
+  return existing ?? { id: AFFIRMATIONS_KEY, items: [], updatedAt: 0 };
 }

@@ -11,7 +11,7 @@
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence, Reorder } from "motion/react";
 import { X, Plus, GripVertical, Trash2 } from "lucide-react";
-import { MAX_AFFIRMATIONS } from "../db";
+import { MAX_AFFIRMATIONS, SUGGESTED_AFFIRMATIONS } from "../db";
 import ConfirmSheet from "./ConfirmSheet";
 
 interface Props {
@@ -36,6 +36,12 @@ export default function AffirmationEditor({ open, items, onClose, onSave }: Prop
     setDraft("");
     setError(null);
   }, [open, items]);
+
+  // Suggestions already in the list are hidden so the section shrinks to
+  // nothing once the user has built their own set.
+  const unusedSuggestions = SUGGESTED_AFFIRMATIONS.filter(
+    (s) => !rows.some((r) => r.text.trim() === s)
+  );
 
   const add = () => {
     const text = draft.trim();
@@ -131,6 +137,45 @@ export default function AffirmationEditor({ open, items, onClose, onSave }: Prop
               </div>
 
               {error && <p className="text-xs text-red-500 font-medium">{error}</p>}
+
+              {/* Optional starting points — nothing is added until tapped. */}
+              {unusedSuggestions.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  <span className="font-sans text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Sugestões
+                  </span>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Ideias para começar. Toque para adicionar à sua lista e edite como quiser —
+                    as afirmações que valem são as suas.
+                  </p>
+                  <div className="flex flex-col gap-1.5">
+                    {unusedSuggestions.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => {
+                          if (rows.length >= MAX_AFFIRMATIONS) {
+                            return setError(`Máximo de ${MAX_AFFIRMATIONS} afirmações.`);
+                          }
+                          // Guard inside the updater: two fast taps on the same
+                          // suggestion both run against fresh `prev`, so without
+                          // this the item lands in the list twice.
+                          setRows((prev) =>
+                            prev.some((r) => r.text.trim() === s) || prev.length >= MAX_AFFIRMATIONS
+                              ? prev
+                              : [...prev, { id: crypto.randomUUID(), text: s }]
+                          );
+                          setError(null);
+                        }}
+                        className="flex items-center gap-2 text-left text-xs text-slate-600 dark:text-slate-300 px-2.5 py-2 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 hover:border-amber-400 hover:bg-amber-50/60 dark:hover:bg-amber-950/20 cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span className="leading-snug">{s}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="flex items-center gap-2 pt-2">
                 <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer">
