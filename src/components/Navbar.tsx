@@ -4,17 +4,21 @@
  */
 
 import React from "react";
-import { History, Plus, ShoppingBag, LayoutGrid } from "lucide-react";
+import { History, Plus, ShoppingBag, LayoutGrid, Brain } from "lucide-react";
 import { AppView } from "../types";
+import { FEATURES } from "../constants/features";
 
 interface NavbarProps {
   currentView: AppView;
   onViewChange: (view: AppView) => void;
   currentUserPhoto?: string | null;
   onOpenPalette?: () => void;
+  /** Affirmation session is open and not yet confirmed — shows a red dot. */
+  affirmationPending?: boolean;
+  onOpenAffirmations?: () => void;
 }
 
-export default function Navbar({ currentView, onViewChange, currentUserPhoto, onOpenPalette }: NavbarProps) {
+export default function Navbar({ currentView, onViewChange, currentUserPhoto, onOpenPalette, affirmationPending, onOpenAffirmations }: NavbarProps) {
   const itemClass = (active: boolean) =>
     `flex items-center justify-center w-11 h-12 rounded-xl transition-all duration-200 ${
       active
@@ -63,23 +67,42 @@ export default function Navbar({ currentView, onViewChange, currentUserPhoto, on
           <Plus className="w-6 h-6 stroke-[2.5]" />
         </button>
 
-        {/* Shop */}
+        {/* Crenças — Belief Breaker */}
         <button
-          id="nav-btn-shop"
-          aria-label="View reward shop"
-          onClick={() => onViewChange("shop")}
-          className={itemClass(currentView === "shop")}
+          id="nav-btn-beliefs"
+          aria-label="Crenças"
+          title="Crenças"
+          onClick={() => onViewChange("beliefs")}
+          className={itemClass(currentView === "beliefs")}
         >
-          <ShoppingBag className="w-5 h-5" />
+          <Brain className="w-5 h-5" />
         </button>
+
+        {/* Shop — hidden while FEATURES.shop is off (nothing removed) */}
+        {FEATURES.shop && (
+          <button
+            id="nav-btn-shop"
+            aria-label="View reward shop"
+            onClick={() => onViewChange("shop")}
+            className={itemClass(currentView === "shop")}
+          >
+            <ShoppingBag className="w-5 h-5" />
+          </button>
+        )}
 
         {/* Profile (Settings agora vive aqui dentro) */}
         <button
           id="nav-btn-profile"
-          aria-label="View user profile"
-          onClick={() => onViewChange("profile")}
-          className={`${itemClass(currentView === "profile")} overflow-hidden`}
+          aria-label={affirmationPending ? "Perfil — afirmações pendentes" : "View user profile"}
+          onClick={() => (affirmationPending && onOpenAffirmations ? onOpenAffirmations() : onViewChange("profile"))}
+          className={`${itemClass(currentView === "profile")} relative`}
         >
+          {affirmationPending && (
+            <span
+              aria-hidden
+              className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white dark:ring-slate-950"
+            />
+          )}
           {currentUserPhoto ? (
             <img
               src={currentUserPhoto}

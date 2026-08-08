@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Checkpoint, Day, Goal, Habit, Settings } from "../types";
+import { AffirmationList, Belief, Checkpoint, Day, Goal, Habit, Settings } from "../types";
+import { BELIEF_SEEDS } from "../constants/beliefs-seed";
 
 const DB_NAME = "postit_db";
 // v2: introduced "points_ledger" store
@@ -11,9 +12,24 @@ const DB_NAME = "postit_db";
 // v4: introduced "ai_chat" store (single AI Coach conversation)
 // v5: introduced "checkpoints" store (AI-proposed goal milestones)
 // v6: introduced "habits" store (quit-habit streak tracker)
-const DB_VERSION = 6;
+// v7: introduced "beliefs" store (belief breaker)
+// v8: introduced "affirmations" store (single ordered list keyed by "list")
+const DB_VERSION = 8;
 const POINTS_BALANCE_KEY = "balance";
 const AI_CHAT_KEY = "default";
+const BELIEFS_SEEDED_KEY = "beliefs_seeded_v1";
+const AFFIRMATIONS_KEY = "list";
+const AFFIRMATIONS_SEEDED_KEY = "affirmations_seeded_v1";
+
+export const DEFAULT_AFFIRMATIONS: string[] = [
+  "Meu valor é maior do que meu pior comportamento.",
+  "Posso errar sem desistir.",
+  "Meu cérebro pode aprender novos caminhos.",
+  "Não preciso resolver toda minha vida hoje.",
+  "Deus conhece minha luta melhor do que qualquer outra pessoa.",
+  "Posso construir uma vida alinhada aos meus valores.",
+  "Hoje escolho dar apenas o próximo passo.",
+];
 
 export const DEFAULT_SETTINGS: Settings = {
   postItColor: "#fef3c7", // Yellow Preset
@@ -70,6 +86,14 @@ export function initDB(): Promise<IDBDatabase> {
       // v6: quit-habit streak tracker
       if (!db.objectStoreNames.contains("habits")) {
         db.createObjectStore("habits", { keyPath: "id" });
+      }
+      // v7: negative beliefs being dismantled by evidence
+      if (!db.objectStoreNames.contains("beliefs")) {
+        db.createObjectStore("beliefs", { keyPath: "id" });
+      }
+      // v8: daily affirmations, one ordered list keyed by "list"
+      if (!db.objectStoreNames.contains("affirmations")) {
+        db.createObjectStore("affirmations", { keyPath: "id" });
       }
     };
   });
@@ -415,4 +439,134 @@ export async function deleteHabitLocal(id: string): Promise<void> {
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
   });
+}
+
+// --- Beliefs (v7) --------------------------------------------------------
+// Note: evidence counts are NOT stored here. They are derived from the day
+// history at render time (utils/beliefProgress) so they stay correct when
+// tasks are edited, days are crumpled, or keywords are refined.
+
+export async function getAllBeliefs(): Promise<Belief[]> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("beliefs", "readonly");
+    const req = tx.objectStore("beliefs").getAll();
+    req.onsuccess = () => resolve((req.result as Belief[]) || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function saveBelief(belief: Belief): Promise<void> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("beliefs", "readwrite");
+    const req = tx.objectStore("beliefs").put(belief);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function deleteBeliefLocal(id: string): Promise<void> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("beliefs", "readwrite");
+    const req = tx.objectStore("beliefs").delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/**
+ * Runs the starter-belief insert at most once. Two guards, for two races:
+ *
+ *  - `seedGuard` (module-level) — loadInitialData runs on mount AND again at
+ *    the end of refreshFromCloud, so two calls can both read an empty store
+ *    before either writes. Without this they each insert the full set and the
+ *    user opens the app to 16 beliefs instead of 8.
+ *  - the localStorage flag, claimed BEFORE any await, covers reloads and other
+ *    tabs, and keeps a user who deliberately deleted every belief from having
+ *    them reappear on the next launch.
+ */
+let seedGuard: Promise<void> | null = null;
+
+async function seedBeliefsOnce(): Promise<void> {
+  if (localStorage.getItem(BELIEFS_SEEDED_KEY) === "done") return;
+  const existing = await getAllBeliefs();
+  if (existing.length > 0) {
+    localStorage.setItem(BELIEFS_SEEDED_KEY, "done");
+    return;
+  }
+  // Claim the seed synchronously — no await between check and set.
+  localStorage.setItem(BELIEFS_SEEDED_KEY, "done");
+
+  const now = Date.now();
+  const seeded: Belief[] = BELIEF_SEEDS.map((s, i) => ({
+    id: crypto.randomUUID(),
+    negativeStatement: s.negativeStatement,
+    healthyStatement: s.healthyStatement,
+    keywords: s.keywords,
+    createdAt: now + i, // preserves the authored order
+    active: true,
+    updatedAt: now + i,
+    deleted: false,
+  }));
+  for (const b of seeded) await saveBelief(b);
+}
+
+/** Seeds on first run, then returns the current list. */
+export async function seedBeliefsIfEmpty(): Promise<Belief[]> {
+  if (!seedGuard) seedGuard = seedBeliefsOnce();
+  await seedGuard;
+  return getAllBeliefs();
+}
+
+// --- Affirmations (v8) ---------------------------------------------------
+
+export const MAX_AFFIRMATIONS = 15;
+
+export async function getAffirmationList(): Promise<AffirmationList | null> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("affirmations", "readonly");
+    const req = tx.objectStore("affirmations").get(AFFIRMATIONS_KEY);
+    req.onsuccess = () => resolve((req.result as AffirmationList) ?? null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function saveAffirmationList(list: AffirmationList): Promise<void> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("affirmations", "readwrite");
+    const req = tx.objectStore("affirmations").put(list);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/** Convenience wrapper: persists `items` under the fixed "list" key. */
+export async function saveAffirmations(items: string[]): Promise<AffirmationList> {
+  const list: AffirmationList = {
+    id: AFFIRMATIONS_KEY,
+    items: items.slice(0, MAX_AFFIRMATIONS),
+    updatedAt: Date.now(),
+  };
+  await saveAffirmationList(list);
+  return list;
+}
+
+/**
+ * Returns the stored affirmations, seeding the defaults the first time.
+ * Guarded by a flag as well as emptiness so a user who deletes them all
+ * doesn't get the defaults back on the next launch.
+ */
+export async function getAffirmationsOrSeed(): Promise<AffirmationList> {
+  const existing = await getAffirmationList();
+  if (existing) return existing;
+  if (localStorage.getItem(AFFIRMATIONS_SEEDED_KEY) === "done") {
+    return { id: AFFIRMATIONS_KEY, items: [], updatedAt: 0 };
+  }
+  const seeded = await saveAffirmations(DEFAULT_AFFIRMATIONS);
+  localStorage.setItem(AFFIRMATIONS_SEEDED_KEY, "done");
+  return seeded;
 }

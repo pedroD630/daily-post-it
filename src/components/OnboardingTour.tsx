@@ -11,6 +11,7 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { StickyNote, Sparkles, ShieldCheck, Trophy, ArrowRight, X } from "lucide-react";
+import { FEATURES } from "../constants/features";
 
 const SEEN_KEY = "onboarding_seen_v1";
 
@@ -32,7 +33,9 @@ const SLIDES: Slide[] = [
   {
     icon: <StickyNote className="w-7 h-7" />,
     title: "Um post-it por dia",
-    body: "Escreva as tarefas do dia. A cor da caneta (preto/azul/vermelho) vale pontos diferentes ao concluir — e tarefas não feitas até a meia-noite descontam pontos. Gaste os pontos na Loja.",
+    body: FEATURES.shop
+      ? "Escreva as tarefas do dia. A cor da caneta (preto/azul/vermelho) vale pontos diferentes ao concluir — e tarefas não feitas até a meia-noite descontam pontos. Gaste os pontos na Loja."
+      : "Escreva as tarefas do dia. Arraste para reordenar, toque no + de uma tarefa para quebrá-la em micropassos, e amasse o papel quando quiser recomeçar.",
     accent: "#f59e0b",
   },
   {

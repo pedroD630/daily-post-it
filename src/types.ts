@@ -66,7 +66,39 @@ export interface Settings {
   liquidGlass?: boolean; // Apple-style frosted translucent surfaces
 }
 
-export type AppView = "main" | "history" | "settings" | "profile" | "shop" | "insights" | "goals" | "streak" | "progress";
+export type AppView = "main" | "history" | "settings" | "profile" | "shop" | "insights" | "goals" | "streak" | "progress" | "beliefs";
+
+/**
+ * The user's daily affirmations, stored as a single ordered list under the
+ * fixed key "list" (same single-record shape as the AI chat store).
+ */
+export interface AffirmationList {
+  id: "list";
+  items: string[];       // display order
+  updatedAt?: number;    // last-write-wins for cross-device merge
+}
+
+/**
+ * A negative belief the user wants to dismantle, paired with the healthier
+ * statement that replaces it. Every completed task whose text matches one of
+ * `keywords` counts as one "evidence" against the negative belief.
+ *
+ * Like Goal and Habit, the evidence count is NEVER stored — it is derived at
+ * runtime from the day history (see utils/beliefProgress). That keeps it
+ * self-healing (editing a task, crumpling a day, or refining keywords all
+ * recompute correctly) and consistent across devices for free, since the
+ * days already sync.
+ */
+export interface Belief {
+  id: string;                    // crypto.randomUUID()
+  negativeStatement: string;     // "Eu não sou suficiente."
+  healthyStatement: string;      // "Meu valor não depende do meu pior hábito."
+  keywords: string[];            // normalized, lowercase, trimmed, deduped
+  createdAt: number;
+  active: boolean;               // false = archived
+  updatedAt?: number;            // last-write-wins for cross-device merge
+  deleted?: boolean;             // tombstone — soft delete so deletions sync
+}
 
 /**
  * A habit the user wants to quit. The streak (days clean) is always derived

@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { getAuth } from "firebase/auth";
-import { Checkpoint, Day, Goal, Habit, Task } from "../types";
+import { AffirmationList, Belief, Checkpoint, Day, Goal, Habit, Task } from "../types";
 
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || "";
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || "";
@@ -521,5 +521,132 @@ export async function pullAllHabitsFromSupabase(userId: string): Promise<Habit[]
   } catch (err) {
     console.error("Failed to pull habits from Supabase:", err);
     return [];
+  }
+}
+
+// --- Beliefs -------------------------------------------------------------
+// Only the belief DEFINITION syncs. The evidence count is derived from the
+// days table on each device, so it matches everywhere without extra rows.
+
+function isMissingBeliefsTable(err: any): boolean {
+  if (!err) return false;
+  const code = err.code || "";
+  const msg = (err.message || "").toLowerCase();
+  return code === "PGRST205" || code === "42P01" || msg.includes("beliefs");
+}
+
+export async function syncBeliefToSupabase(belief: Belief, userId: string): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.from("beliefs").upsert({
+      id: belief.id,
+      user_id: userId,
+      negative_statement: belief.negativeStatement,
+      healthy_statement: belief.healthyStatement,
+      keywords: belief.keywords,
+      created_at: belief.createdAt,
+      active: belief.active,
+      updated_at: belief.updatedAt ?? Date.now(),
+      deleted: belief.deleted ?? false
+    }, { onConflict: "id" });
+    if (error) {
+      if (isMissingBeliefsTable(error)) {
+        console.warn("Supabase 'beliefs' table missing — run migration 011_beliefs.sql.");
+        return false;
+      }
+      throw error;
+    }
+    return true;
+  } catch (err) {
+    console.error("Supabase beliefs sync error:", err);
+    return false;
+  }
+}
+
+export async function pullAllBeliefsFromSupabase(userId: string): Promise<Belief[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase.from("beliefs").select("*").eq("user_id", userId);
+    if (error) {
+      if (isMissingBeliefsTable(error)) {
+        console.warn("Supabase 'beliefs' table missing — run migration 011_beliefs.sql.");
+        return [];
+      }
+      throw error;
+    }
+    return (data || []).map((b: any): Belief => ({
+      id: b.id,
+      negativeStatement: b.negative_statement || "",
+      healthyStatement: b.healthy_statement || "",
+      keywords: Array.isArray(b.keywords) ? b.keywords : [],
+      createdAt: Number(b.created_at || Date.now()),
+      active: b.active === false ? false : true,
+      updatedAt: b.updated_at ? Number(b.updated_at) : 0,
+      deleted: !!b.deleted,
+    }));
+  } catch (err) {
+    console.error("Failed to pull beliefs from Supabase:", err);
+    return [];
+  }
+}
+
+// --- Affirmations --------------------------------------------------------
+// One row per user holding the ordered list. The per-session "done" marks
+// stay device-local (localStorage) — confirming on the phone shouldn't tick
+// the box on the laptop.
+
+function isMissingAffirmationsTable(err: any): boolean {
+  if (!err) return false;
+  const code = err.code || "";
+  const msg = (err.message || "").toLowerCase();
+  return code === "PGRST205" || code === "42P01" || msg.includes("affirmations");
+}
+
+export async function syncAffirmationsToSupabase(list: AffirmationList, userId: string): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase.from("affirmations").upsert({
+      user_id: userId,
+      items: list.items,
+      updated_at: list.updatedAt ?? Date.now()
+    }, { onConflict: "user_id" });
+    if (error) {
+      if (isMissingAffirmationsTable(error)) {
+        console.warn("Supabase 'affirmations' table missing — run migration 012_affirmations.sql.");
+        return false;
+      }
+      throw error;
+    }
+    return true;
+  } catch (err) {
+    console.error("Supabase affirmations sync error:", err);
+    return false;
+  }
+}
+
+export async function pullAffirmationsFromSupabase(userId: string): Promise<AffirmationList | null> {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from("affirmations")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) {
+      if (isMissingAffirmationsTable(error)) {
+        console.warn("Supabase 'affirmations' table missing — run migration 012_affirmations.sql.");
+        return null;
+      }
+      throw error;
+    }
+    if (!data) return null;
+    return {
+      id: "list",
+      items: Array.isArray(data.items) ? data.items : [],
+      updatedAt: data.updated_at ? Number(data.updated_at) : 0,
+    };
+  } catch (err) {
+    console.error("Failed to pull affirmations from Supabase:", err);
+    return null;
   }
 }
