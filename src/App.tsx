@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Day, Task, Settings, AppView, ThemeMode, Goal } from "./types";
-import { getSettings, saveSettings, getDay, saveDay, getAllDays, getBalance, getBalanceMeta, applyPointsDelta, setBalance, getAllGoals, saveGoal, deleteGoalLocal, getAllCheckpoints, saveCheckpoint, deleteCheckpointLocal, getAllHabits, saveHabit, getAllBeliefs, saveBelief, seedBeliefsIfEmpty } from "./db";
+import { getSettings, saveSettings, getDay, saveDay, getAllDays, getBalance, getBalanceMeta, applyPointsDelta, setBalance, getAllGoals, saveGoal, deleteGoalLocal, getAllCheckpoints, saveCheckpoint, deleteCheckpointLocal, getAllHabits, saveHabit, getAllBeliefs, saveBelief, seedBeliefsIfEmpty, getAffirmationsOrSeed, saveAffirmations, saveAffirmationList } from "./db";
 import { DEFAULT_SETTINGS } from "./db";
 import Navbar from "./components/Navbar";
 import PostItCard from "./components/PostItCard";
@@ -20,9 +20,11 @@ import { getPaletteById } from "./constants/palettes";
 import { pointValue, computeTaskPoints } from "./utils/points";
 import { computeStreak } from "./utils/insights";
 import { startPenaltyScheduler, checkMissedPenalty } from "./utils/penaltyScheduler";
-import { syncPointsBalanceToSupabase, pullPointsBalanceFromSupabase, syncGoalToSupabase, deleteGoalFromSupabase, pullAllGoalsFromSupabase, syncCheckpointToSupabase, pullAllCheckpointsFromSupabase, syncHabitToSupabase, pullAllHabitsFromSupabase, syncBeliefToSupabase, pullAllBeliefsFromSupabase } from "./db/supabase";
+import { syncPointsBalanceToSupabase, pullPointsBalanceFromSupabase, syncGoalToSupabase, deleteGoalFromSupabase, pullAllGoalsFromSupabase, syncCheckpointToSupabase, pullAllCheckpointsFromSupabase, syncHabitToSupabase, pullAllHabitsFromSupabase, syncBeliefToSupabase, pullAllBeliefsFromSupabase, syncAffirmationsToSupabase, pullAffirmationsFromSupabase } from "./db/supabase";
 import { Belief, Checkpoint, Habit } from "./types";
 import BeliefsView from "./components/BeliefsView";
+import AffirmationModal from "./components/AffirmationModal";
+import { AffirmationSession, getPendingSession, markSessionDone } from "./utils/affirmationScheduler";
 import { ParsedCheckpoint } from "./utils/checkpointParser";
 import SyncIndicator, { SyncState } from "./components/SyncIndicator";
 import ConfirmSheet from "./components/ConfirmSheet";
@@ -127,6 +129,12 @@ export default function App() {
   const [habits, setHabits] = useState<Habit[]>([]);
   const [beliefs, setBeliefs] = useState<Belief[]>([]);
 
+  // Daily affirmations. `pendingSession` is the window that is open and not
+  // yet confirmed today; it drives both the modal and the navbar red dot.
+  const [affirmations, setAffirmations] = useState<string[]>([]);
+  const [pendingSession, setPendingSession] = useState<AffirmationSession | null>(null);
+  const [affirmationOpen, setAffirmationOpen] = useState(false);
+
   // Command palette + cross-view navigation helpers
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [historyFocusDayId, setHistoryFocusDayId] = useState<string | null>(null);
@@ -144,6 +152,14 @@ export default function App() {
   useEffect(() => {
     todayDayRef.current = todayDay;
   }, [todayDay]);
+
+  // Daily affirmations: on launch, decide whether a session is due. The modal
+  // waits for the first-run tour to finish so the two never stack up.
+  useEffect(() => {
+    const session = getPendingSession();
+    setPendingSession(session);
+    if (session && !showOnboarding) setAffirmationOpen(true);
+  }, [showOnboarding]);
 
   /**
    * Adjust the balance: writes to IDB, updates state, and (if logged in)
@@ -284,6 +300,9 @@ export default function App() {
       // Seeds the starter beliefs on first launch, then returns the list.
       const allBeliefs = await seedBeliefsIfEmpty();
       setBeliefs(allBeliefs.filter((b) => !b.deleted));
+
+      const affList = await getAffirmationsOrSeed();
+      setAffirmations(affList.items);
     } catch (err) {
       console.error("Failed to load initial data from IndexedDB:", err);
     }
@@ -493,6 +512,18 @@ export default function App() {
           }
         } catch (e) {
           console.warn("Beliefs pull/merge failed:", e);
+        }
+        try {
+          // Affirmations are one row — plain last-write-wins on updatedAt.
+          const cloudAff = await pullAffirmationsFromSupabase(uid);
+          const localAff = await getAffirmationsOrSeed();
+          if (cloudAff && (cloudAff.updatedAt ?? 0) > (localAff.updatedAt ?? 0)) {
+            await saveAffirmationList(cloudAff);
+          } else if ((localAff.updatedAt ?? 0) > (cloudAff?.updatedAt ?? 0)) {
+            void syncAffirmationsToSupabase(localAff, uid);
+          }
+        } catch (e) {
+          console.warn("Affirmations pull/merge failed:", e);
         }
       }
       await loadInitialData();
@@ -1142,6 +1173,21 @@ export default function App() {
     }
   };
 
+  // --- Affirmations handlers ---------------------------------------------
+  const handleConfirmAffirmations = () => {
+    if (pendingSession) markSessionDone(pendingSession);
+    setAffirmationOpen(false);
+    setPendingSession(null);
+  };
+
+  const handleSaveAffirmations = async (items: string[]) => {
+    setAffirmations(items);
+    const saved = await saveAffirmations(items);
+    if (auth.currentUser) {
+      void syncAffirmationsToSupabase(saved, auth.currentUser.uid);
+    }
+  };
+
   // Quick mutations triggered from the command palette — persist immediately
   const applyQuickSettings = async (patch: Partial<Settings>) => {
     const next = { ...settings, ...patch };
@@ -1336,7 +1382,21 @@ export default function App() {
         onViewChange={setCurrentView}
         currentUserPhoto={currentUser?.photoURL}
         onOpenPalette={() => setPaletteOpen(true)}
+        affirmationPending={pendingSession !== null && !affirmationOpen}
+        onOpenAffirmations={() => setAffirmationOpen(true)}
       />
+
+      {/* Daily affirmations — morning (06–12h) and evening (18–24h) */}
+      {pendingSession && (
+        <AffirmationModal
+          open={affirmationOpen}
+          session={pendingSession}
+          affirmations={affirmations}
+          onConfirm={handleConfirmAffirmations}
+          onDismiss={() => setAffirmationOpen(false)}
+          onSaveAffirmations={handleSaveAffirmations}
+        />
+      )}
 
       {/* First-run onboarding tour */}
       {showOnboarding && <OnboardingTour onDone={() => setShowOnboarding(false)} />}

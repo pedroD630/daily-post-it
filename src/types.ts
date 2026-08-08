@@ -69,6 +69,16 @@ export interface Settings {
 export type AppView = "main" | "history" | "settings" | "profile" | "shop" | "insights" | "goals" | "streak" | "progress" | "beliefs";
 
 /**
+ * The user's daily affirmations, stored as a single ordered list under the
+ * fixed key "list" (same single-record shape as the AI chat store).
+ */
+export interface AffirmationList {
+  id: "list";
+  items: string[];       // display order
+  updatedAt?: number;    // last-write-wins for cross-device merge
+}
+
+/**
  * A negative belief the user wants to dismantle, paired with the healthier
  * statement that replaces it. Every completed task whose text matches one of
  * `keywords` counts as one "evidence" against the negative belief.

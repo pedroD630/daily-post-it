@@ -13,9 +13,12 @@ interface NavbarProps {
   onViewChange: (view: AppView) => void;
   currentUserPhoto?: string | null;
   onOpenPalette?: () => void;
+  /** Affirmation session is open and not yet confirmed — shows a red dot. */
+  affirmationPending?: boolean;
+  onOpenAffirmations?: () => void;
 }
 
-export default function Navbar({ currentView, onViewChange, currentUserPhoto, onOpenPalette }: NavbarProps) {
+export default function Navbar({ currentView, onViewChange, currentUserPhoto, onOpenPalette, affirmationPending, onOpenAffirmations }: NavbarProps) {
   const itemClass = (active: boolean) =>
     `flex items-center justify-center w-11 h-12 rounded-xl transition-all duration-200 ${
       active
@@ -90,10 +93,16 @@ export default function Navbar({ currentView, onViewChange, currentUserPhoto, on
         {/* Profile (Settings agora vive aqui dentro) */}
         <button
           id="nav-btn-profile"
-          aria-label="View user profile"
-          onClick={() => onViewChange("profile")}
-          className={`${itemClass(currentView === "profile")} overflow-hidden`}
+          aria-label={affirmationPending ? "Perfil — afirmações pendentes" : "View user profile"}
+          onClick={() => (affirmationPending && onOpenAffirmations ? onOpenAffirmations() : onViewChange("profile"))}
+          className={`${itemClass(currentView === "profile")} relative`}
         >
+          {affirmationPending && (
+            <span
+              aria-hidden
+              className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white dark:ring-slate-950"
+            />
+          )}
           {currentUserPhoto ? (
             <img
               src={currentUserPhoto}
