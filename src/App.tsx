@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Day, Task, Settings, AppView, ThemeMode, Goal } from "./types";
-import { getSettings, saveSettings, getDay, saveDay, getAllDays, getBalance, getBalanceMeta, applyPointsDelta, setBalance, getAllGoals, saveGoal, deleteGoalLocal, getAllCheckpoints, saveCheckpoint, deleteCheckpointLocal, getAllHabits, saveHabit } from "./db";
+import { getSettings, saveSettings, getDay, saveDay, getAllDays, getBalance, getBalanceMeta, applyPointsDelta, setBalance, getAllGoals, saveGoal, deleteGoalLocal, getAllCheckpoints, saveCheckpoint, deleteCheckpointLocal, getAllHabits, saveHabit, getAllBeliefs, saveBelief, seedBeliefsIfEmpty } from "./db";
 import { DEFAULT_SETTINGS } from "./db";
 import Navbar from "./components/Navbar";
 import PostItCard from "./components/PostItCard";
@@ -20,8 +20,9 @@ import { getPaletteById } from "./constants/palettes";
 import { pointValue, computeTaskPoints } from "./utils/points";
 import { computeStreak } from "./utils/insights";
 import { startPenaltyScheduler, checkMissedPenalty } from "./utils/penaltyScheduler";
-import { syncPointsBalanceToSupabase, pullPointsBalanceFromSupabase, syncGoalToSupabase, deleteGoalFromSupabase, pullAllGoalsFromSupabase, syncCheckpointToSupabase, pullAllCheckpointsFromSupabase, syncHabitToSupabase, pullAllHabitsFromSupabase } from "./db/supabase";
-import { Checkpoint, Habit } from "./types";
+import { syncPointsBalanceToSupabase, pullPointsBalanceFromSupabase, syncGoalToSupabase, deleteGoalFromSupabase, pullAllGoalsFromSupabase, syncCheckpointToSupabase, pullAllCheckpointsFromSupabase, syncHabitToSupabase, pullAllHabitsFromSupabase, syncBeliefToSupabase, pullAllBeliefsFromSupabase } from "./db/supabase";
+import { Belief, Checkpoint, Habit } from "./types";
+import BeliefsView from "./components/BeliefsView";
 import { ParsedCheckpoint } from "./utils/checkpointParser";
 import SyncIndicator, { SyncState } from "./components/SyncIndicator";
 import ConfirmSheet from "./components/ConfirmSheet";
@@ -124,6 +125,7 @@ export default function App() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [habits, setHabits] = useState<Habit[]>([]);
+  const [beliefs, setBeliefs] = useState<Belief[]>([]);
 
   // Command palette + cross-view navigation helpers
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -278,6 +280,10 @@ export default function App() {
 
       const allHabits = await getAllHabits();
       setHabits(allHabits.filter((h) => !h.deleted));
+
+      // Seeds the starter beliefs on first launch, then returns the list.
+      const allBeliefs = await seedBeliefsIfEmpty();
+      setBeliefs(allBeliefs.filter((b) => !b.deleted));
     } catch (err) {
       console.error("Failed to load initial data from IndexedDB:", err);
     }
@@ -464,6 +470,29 @@ export default function App() {
           }
         } catch (e) {
           console.warn("Habits pull/merge failed:", e);
+        }
+        try {
+          // Bidirectional belief merge (same pattern as habits). Only the
+          // belief definition travels — evidence counts are derived locally
+          // from the days, which already sync.
+          const cloudBeliefs = await pullAllBeliefsFromSupabase(uid);
+          const localBeliefs = await getAllBeliefs();
+          const cloudBById = new Map(cloudBeliefs.map((b) => [b.id, b]));
+          const localBById = new Map(localBeliefs.map((b) => [b.id, b]));
+          for (const cloudB of cloudBeliefs) {
+            const localB = localBById.get(cloudB.id);
+            if ((cloudB.updatedAt ?? 0) >= (localB?.updatedAt ?? 0)) {
+              await saveBelief(cloudB);
+            }
+          }
+          for (const localB of localBeliefs) {
+            const cloudB = cloudBById.get(localB.id);
+            if (!cloudB || (localB.updatedAt ?? 0) > (cloudB.updatedAt ?? 0)) {
+              void syncBeliefToSupabase(localB, uid);
+            }
+          }
+        } catch (e) {
+          console.warn("Beliefs pull/merge failed:", e);
         }
       }
       await loadInitialData();
@@ -1081,6 +1110,38 @@ export default function App() {
     }
   };
 
+  // --- Beliefs handlers --------------------------------------------------
+  // Only the definition is persisted. Evidence is derived from `allDays` at
+  // render time (utils/beliefProgress), so completing or un-completing a
+  // task needs no write here — the count follows on its own.
+  const handleSaveBelief = async (belief: Belief) => {
+    const stamped: Belief = { ...belief, updatedAt: Date.now() };
+    setBeliefs((prev) => {
+      const idx = prev.findIndex((b) => b.id === stamped.id);
+      if (idx === -1) return [...prev, stamped];
+      const next = prev.slice();
+      next[idx] = stamped;
+      return next;
+    });
+    await saveBelief(stamped);
+    if (auth.currentUser) {
+      void syncBeliefToSupabase(stamped, auth.currentUser.uid);
+    }
+  };
+
+  const handleDeleteBelief = async (id: string) => {
+    const existing = beliefs.find((b) => b.id === id);
+    setBeliefs((prev) => prev.filter((b) => b.id !== id));
+    if (existing) {
+      // Soft-delete tombstone so the deletion propagates cross-device.
+      const tombstone: Belief = { ...existing, deleted: true, updatedAt: Date.now() };
+      await saveBelief(tombstone);
+      if (auth.currentUser) {
+        void syncBeliefToSupabase(tombstone, auth.currentUser.uid);
+      }
+    }
+  };
+
   // Quick mutations triggered from the command palette — persist immediately
   const applyQuickSettings = async (patch: Partial<Settings>) => {
     const next = { ...settings, ...patch };
@@ -1492,6 +1553,15 @@ export default function App() {
                 onDeleteCheckpoint={handleDeleteCheckpoint}
                 onSaveHabit={handleSaveHabit}
                 onDeleteHabit={handleDeleteHabit}
+              />
+            )}
+
+            {currentView === "beliefs" && (
+              <BeliefsView
+                beliefs={beliefs}
+                allDays={allDays}
+                onSaveBelief={handleSaveBelief}
+                onDeleteBelief={handleDeleteBelief}
               />
             )}
 

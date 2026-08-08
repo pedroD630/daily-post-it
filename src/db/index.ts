@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Checkpoint, Day, Goal, Habit, Settings } from "../types";
+import { Belief, Checkpoint, Day, Goal, Habit, Settings } from "../types";
+import { BELIEF_SEEDS } from "../constants/beliefs-seed";
 
 const DB_NAME = "postit_db";
 // v2: introduced "points_ledger" store
@@ -11,9 +12,11 @@ const DB_NAME = "postit_db";
 // v4: introduced "ai_chat" store (single AI Coach conversation)
 // v5: introduced "checkpoints" store (AI-proposed goal milestones)
 // v6: introduced "habits" store (quit-habit streak tracker)
-const DB_VERSION = 6;
+// v7: introduced "beliefs" store (belief breaker)
+const DB_VERSION = 7;
 const POINTS_BALANCE_KEY = "balance";
 const AI_CHAT_KEY = "default";
+const BELIEFS_SEEDED_KEY = "beliefs_seeded_v1";
 
 export const DEFAULT_SETTINGS: Settings = {
   postItColor: "#fef3c7", // Yellow Preset
@@ -70,6 +73,10 @@ export function initDB(): Promise<IDBDatabase> {
       // v6: quit-habit streak tracker
       if (!db.objectStoreNames.contains("habits")) {
         db.createObjectStore("habits", { keyPath: "id" });
+      }
+      // v7: negative beliefs being dismantled by evidence
+      if (!db.objectStoreNames.contains("beliefs")) {
+        db.createObjectStore("beliefs", { keyPath: "id" });
       }
     };
   });
@@ -415,4 +422,69 @@ export async function deleteHabitLocal(id: string): Promise<void> {
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
   });
+}
+
+// --- Beliefs (v7) --------------------------------------------------------
+// Note: evidence counts are NOT stored here. They are derived from the day
+// history at render time (utils/beliefProgress) so they stay correct when
+// tasks are edited, days are crumpled, or keywords are refined.
+
+export async function getAllBeliefs(): Promise<Belief[]> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("beliefs", "readonly");
+    const req = tx.objectStore("beliefs").getAll();
+    req.onsuccess = () => resolve((req.result as Belief[]) || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function saveBelief(belief: Belief): Promise<void> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("beliefs", "readwrite");
+    const req = tx.objectStore("beliefs").put(belief);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function deleteBeliefLocal(id: string): Promise<void> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("beliefs", "readwrite");
+    const req = tx.objectStore("beliefs").delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/**
+ * Inserts the starter beliefs the first time the store is empty. Returns the
+ * full list either way, so callers can just use the result.
+ *
+ * Guarded on "store is empty" rather than a localStorage flag so a user who
+ * deliberately deletes every belief doesn't get them re-seeded on the next
+ * launch — an empty store after a deliberate wipe stays empty only if the
+ * flag says we already seeded, hence the flag AND the emptiness check.
+ */
+export async function seedBeliefsIfEmpty(): Promise<Belief[]> {
+  const existing = await getAllBeliefs();
+  if (existing.length > 0) return existing;
+  if (localStorage.getItem(BELIEFS_SEEDED_KEY) === "done") return existing;
+
+  const now = Date.now();
+  const seeded: Belief[] = BELIEF_SEEDS.map((s, i) => ({
+    id: crypto.randomUUID(),
+    negativeStatement: s.negativeStatement,
+    healthyStatement: s.healthyStatement,
+    keywords: s.keywords,
+    createdAt: now + i, // preserves the authored order
+    active: true,
+    updatedAt: now + i,
+    deleted: false,
+  }));
+  for (const b of seeded) await saveBelief(b);
+  localStorage.setItem(BELIEFS_SEEDED_KEY, "done");
+  return seeded;
 }

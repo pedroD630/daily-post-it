@@ -4,7 +4,7 @@
  */
 
 import React from "react";
-import { History, Plus, ShoppingBag, LayoutGrid } from "lucide-react";
+import { History, Plus, ShoppingBag, LayoutGrid, Brain } from "lucide-react";
 import { AppView } from "../types";
 import { FEATURES } from "../constants/features";
 
@@ -62,6 +62,17 @@ export default function Navbar({ currentView, onViewChange, currentUserPhoto, on
           }`}
         >
           <Plus className="w-6 h-6 stroke-[2.5]" />
+        </button>
+
+        {/* Crenças — Belief Breaker */}
+        <button
+          id="nav-btn-beliefs"
+          aria-label="Crenças"
+          title="Crenças"
+          onClick={() => onViewChange("beliefs")}
+          className={itemClass(currentView === "beliefs")}
+        >
+          <Brain className="w-5 h-5" />
         </button>
 
         {/* Shop — hidden while FEATURES.shop is off (nothing removed) */}
