@@ -30,6 +30,18 @@ export interface Task {
    * task auto-completes. Hidden by default; toggled open in the TaskItem.
    */
   subtasks?: SubTask[];
+  /**
+   * Bumped by saveDay whenever this task's content changes. Drives the
+   * per-task last-write-wins merge in pullAllDaysFromCloud, so two devices
+   * editing different tasks on the same day no longer clobber each other.
+   */
+  updatedAt?: number;
+  /**
+   * Soft-delete tombstone. A task is only ever removed because it carries
+   * this flag — never because some device simply didn't have it. Filtered
+   * out by getDay/getAllDays, so the UI never sees tombstones.
+   */
+  deleted?: boolean;
 }
 
 export interface Day {

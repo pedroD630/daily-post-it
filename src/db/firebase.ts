@@ -12,7 +12,7 @@ import {
   signOut
 } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
-import { Day } from "../types";
+import { Day, Task } from "../types";
 import { saveDay } from "./index";
 import { syncDayToSupabase } from "./supabase";
 
@@ -319,7 +319,12 @@ export async function syncDayToCloud(day: Day): Promise<void> {
   if (!navigator.onLine) return;
 
   try {
-    const success = await syncDayToSupabase(day, user.uid);
+    // Push the stored copy, not the caller's: React state has already had
+    // tombstones stripped, and pushing that would drop the record of a
+    // deletion before it ever reached the cloud.
+    const { getDayRaw } = await import("./index");
+    const toPush = (await getDayRaw(day.id)) ?? day;
+    const success = await syncDayToSupabase(toPush, user.uid);
     if (!success) throw new Error("Supabase sync failed");
 
     // Sync confirmed by the server; safe to dequeue.
@@ -345,8 +350,9 @@ export async function syncAllUnsyncedDays(): Promise<void> {
   console.log(`Flushing ${queue.length} offline changes to Supabase...`);
   
   for (const item of queue) {
-    const { getDay } = await import("./index");
-    const localDay = await getDay(item.dayId);
+    // Raw: the queued push must carry tombstones, or deletions never travel.
+    const { getDayRaw } = await import("./index");
+    const localDay = await getDayRaw(item.dayId);
     if (localDay) {
       await syncDayToCloud(localDay);
     }
@@ -372,13 +378,60 @@ if (typeof window !== "undefined") {
  * Without this guard, a heartbeat or visibility refresh would clobber
  * mid-typing state with the pre-blur snapshot held in Supabase.
  */
+/**
+ * Merge one cloud day into its local counterpart.
+ *
+ * The rule the whole fix rests on: a task missing from one side is NOT a
+ * deletion, it is just news the other side hasn't heard yet. So the task
+ * list is a UNION by id, and a task only ever disappears by carrying an
+ * explicit `deleted` tombstone.
+ *
+ * For a task present on both sides we take the fresher one by task
+ * `updatedAt`. Rows written before that field existed are 0 on both sides;
+ * those fall back to `cloudWinsDayLevel`, which preserves the old
+ * day-level last-write-wins behaviour for legacy data.
+ */
+export function mergeDay(local: Day | null, cloud: Day, cloudWinsDayLevel: boolean): Day {
+  if (!local) return cloud;
+
+  const base = cloudWinsDayLevel ? cloud : local;
+  const byId = new Map<string, Task>();
+
+  for (const t of local.tasks ?? []) byId.set(t.id, t);
+  for (const c of cloud.tasks ?? []) {
+    const l = byId.get(c.id);
+    if (!l) {
+      byId.set(c.id, c);            // only in cloud → adopt it
+      continue;
+    }
+    const lu = l.updatedAt ?? 0;
+    const cu = c.updatedAt ?? 0;
+    if (cu > lu) byId.set(c.id, c);
+    else if (cu === lu && cloudWinsDayLevel) byId.set(c.id, c);
+    // else keep local — including the local-only case, which is the whole point
+  }
+
+  const tasks = Array.from(byId.values()).sort((a, b) => {
+    const ao = a.order ?? 0;
+    const bo = b.order ?? 0;
+    return ao !== bo ? ao - bo : (a.createdAt ?? 0) - (b.createdAt ?? 0);
+  });
+
+  return {
+    ...base,
+    tasks,
+    // Keep the highest stamp so the merged row isn't seen as stale next pull.
+    updatedAt: Math.max(local.updatedAt ?? 0, cloud.updatedAt ?? 0),
+  };
+}
+
 export async function pullAllDaysFromCloud(): Promise<Day[]> {
   const user = auth.currentUser;
   if (!user) return [];
 
   try {
     const { pullAllDaysFromSupabase } = await import("./supabase");
-    const { getDay } = await import("./index");
+    const { getDayRaw } = await import("./index");
     const cloudDays = await pullAllDaysFromSupabase(user.uid);
 
     let wrote = 0;
@@ -387,7 +440,7 @@ export async function pullAllDaysFromCloud(): Promise<Day[]> {
     const skippedDetails: Array<{ id: string; localUpdated: number; cloudUpdated: number; localTasks: number; cloudTasks: number }> = [];
 
     for (const cloudDay of cloudDays) {
-      const local = await getDay(cloudDay.id);
+      const local = await getDayRaw(cloudDay.id);
       const localUpdated = local?.updatedAt ?? 0;
       const cloudUpdated = cloudDay.updatedAt ?? 0;
 
@@ -400,24 +453,26 @@ export async function pullAllDaysFromCloud(): Promise<Day[]> {
       // bogus stamp was always "newer" than the cloud's real creation
       // timestamp). This branch is what recovers users stuck in that state
       // without needing to clear browser data.
+      // Tombstones don't count as content on either side.
       const localIsEmptyShell =
-        !local || (local.tasks.length === 0 && !local.note);
+        !local || (local.tasks.filter((t) => !t.deleted).length === 0 && !local.note);
       const cloudHasContent =
-        cloudDay.tasks.length > 0 || !!cloudDay.note;
+        cloudDay.tasks.some((t) => !t.deleted) || !!cloudDay.note;
 
       if (localIsEmptyShell && cloudHasContent) {
-        await saveDay(cloudDay);
+        await saveDay(mergeDay(local, cloudDay, cloudUpdated > localUpdated));
         wrote += 1;
         recovered += 1;
         continue;
       }
 
-      // Standard last-write-wins by updatedAt. Cloud wins on equality so a
-      // brand-new pull (both 0) still populates the IDB.
-      if (cloudUpdated >= localUpdated) {
-        await saveDay(cloudDay);
-        wrote += 1;
-      } else {
+      // The day's own fields (note, colour, discarded) still follow
+      // last-write-wins, cloud winning ties so a brand-new pull populates.
+      // Tasks, however, are merged per id — see mergeDay. Writing on every
+      // pull is what pushes a local-only task into the union so it survives.
+      await saveDay(mergeDay(local, cloudDay, cloudUpdated >= localUpdated));
+      wrote += 1;
+      if (cloudUpdated < localUpdated) {
         skipped += 1;
         skippedDetails.push({
           id: cloudDay.id,

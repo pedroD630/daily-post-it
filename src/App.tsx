@@ -946,14 +946,25 @@ export default function App() {
 
     const taskToDelete = todayDay.tasks.find((t) => t.id === taskId);
 
-    const updatedTasks = todayDay.tasks.filter((task) => task.id !== taskId);
+    // Soft delete: the task is kept as a tombstone so the deletion can travel
+    // to the other devices. Absence alone never removes anything any more, so
+    // an explicit record is the only thing that does. saveDay carries the
+    // tombstone into storage; React state stays clean.
+    if (taskToDelete) {
+      const tombstoned = {
+        ...todayDay,
+        tasks: todayDay.tasks.map((t) =>
+          t.id === taskId ? { ...t, deleted: true, updatedAt: Date.now() } : t
+        ),
+      };
+      await saveDayWithSync(tombstoned);
+    }
+
     const updatedDay = {
       ...todayDay,
-      tasks: updatedTasks,
+      tasks: todayDay.tasks.filter((task) => task.id !== taskId),
     };
-
     setTodayDay(updatedDay);
-    await saveDayWithSync(updatedDay);
     setActiveDeleteId(null);
 
     // Sync deletion directly to Google
