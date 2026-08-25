@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { AffirmationList, Belief, Checkpoint, Day, Goal, Habit, Settings } from "../types";
+import { AffirmationList, Belief, Checkpoint, Day, Goal, Habit, Settings, Task } from "../types";
 import { BELIEF_SEEDS } from "../constants/beliefs-seed";
 
 const DB_NAME = "postit_db";
@@ -150,49 +150,93 @@ export async function saveSettings(settings: Settings): Promise<void> {
   });
 }
 
-export async function getDay(id: string): Promise<Day | null> {
+/** Strips soft-deleted tasks so nothing above the sync layer sees them. */
+function withoutTombstones(day: Day): Day {
+  if (!day.tasks?.some((t) => t.deleted)) return day;
+  return { ...day, tasks: day.tasks.filter((t) => !t.deleted) };
+}
+
+/**
+ * Raw read — tombstones included. Only the sync layer wants this; everything
+ * else should use getDay/getAllDays.
+ */
+export async function getDayRaw(id: string): Promise<Day | null> {
   const db = await initDB();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction("days", "readonly");
     const store = transaction.objectStore("days");
     const request = store.get(id);
-
-    request.onsuccess = () => {
-      resolve(request.result || null);
-    };
-
-    request.onerror = () => {
-      reject(request.error);
-    };
-  });
-}
-
-export async function saveDay(day: Day): Promise<void> {
-  const db = await initDB();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction("days", "readwrite");
-    const store = transaction.objectStore("days");
-    const request = store.put(day);
-
-    request.onsuccess = () => resolve();
+    request.onsuccess = () => resolve((request.result as Day) || null);
     request.onerror = () => reject(request.error);
   });
 }
 
-export async function getAllDays(): Promise<Day[]> {
+export async function getAllDaysRaw(): Promise<Day[]> {
   const db = await initDB();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction("days", "readonly");
     const store = transaction.objectStore("days");
     const request = store.getAll();
+    request.onsuccess = () => resolve((request.result as Day[]) || []);
+    request.onerror = () => reject(request.error);
+  });
+}
 
-    request.onsuccess = () => {
-      resolve(request.result || []);
-    };
+export async function getDay(id: string): Promise<Day | null> {
+  const raw = await getDayRaw(id);
+  return raw ? withoutTombstones(raw) : null;
+}
 
-    request.onerror = () => {
-      reject(request.error);
-    };
+export async function getAllDays(): Promise<Day[]> {
+  const raw = await getAllDaysRaw();
+  return raw.map(withoutTombstones);
+}
+
+/** Everything on a task except the bookkeeping fields saveDay manages. */
+function taskContentKey(t: Task): string {
+  const { updatedAt, ...content } = t;
+  return JSON.stringify(content);
+}
+
+/**
+ * Persist a day, maintaining two invariants the sync layer depends on:
+ *
+ *  1. Tombstones survive. Callers hold React state that has already been
+ *     stripped of deleted tasks; without carrying them over from the stored
+ *     copy, the very next save would erase the record that a task was
+ *     deleted, and the next pull would resurrect it.
+ *  2. Every changed or new task gets a fresh `updatedAt`. Stamping here
+ *     rather than in each of the six task handlers means no handler can
+ *     forget, and an unchanged task keeps its old timestamp so it never
+ *     wins a merge it shouldn't.
+ */
+export async function saveDay(day: Day): Promise<void> {
+  const existing = await getDayRaw(day.id);
+  const now = Date.now();
+
+  const prevById = new Map((existing?.tasks ?? []).map((t) => [t.id, t]));
+  const stampedTasks = (day.tasks ?? []).map((t) => {
+    const prev = prevById.get(t.id);
+    if (prev && taskContentKey(prev) === taskContentKey(t)) {
+      return prev.updatedAt !== undefined ? { ...t, updatedAt: prev.updatedAt } : t;
+    }
+    return { ...t, updatedAt: now };
+  });
+
+  const incomingIds = new Set(stampedTasks.map((t) => t.id));
+  const carriedTombstones = (existing?.tasks ?? []).filter(
+    (t) => t.deleted && !incomingIds.has(t.id)
+  );
+
+  const toStore: Day = { ...day, tasks: [...stampedTasks, ...carriedTombstones] };
+
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction("days", "readwrite");
+    const store = transaction.objectStore("days");
+    const request = store.put(toStore);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
   });
 }
 

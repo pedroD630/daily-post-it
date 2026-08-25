@@ -73,7 +73,15 @@ export async function syncDayToSupabase(day: Day, userId: string): Promise<boole
 
     if (dayErr) throw dayErr;
 
-    // 2. Map and Upsert current tasks (no deletion before insert!)
+    // 2. Upsert every task we hold, tombstones included.
+    //
+    // This function used to also DELETE any cloud task missing from this
+    // device's list ("not in (ids)", and a delete-everything branch when the
+    // local day was empty). That treated "absent here" as "deleted", so a
+    // device holding a stale or not-yet-populated copy of a day wiped tasks
+    // another device had just written — and an auto-created empty "today"
+    // could erase the whole day server-side. Deletion is now expressed only
+    // by an explicit tombstone.
     if (day.tasks && day.tasks.length > 0) {
       const dbTasks = day.tasks.map((task: Task) => ({
         id: task.id,
@@ -86,42 +94,46 @@ export async function syncDayToSupabase(day: Day, userId: string): Promise<boole
         sort_order: task.order !== undefined ? task.order : 0,
         pen_color: task.style?.penColor || "#1f2937",
         font_family: task.style?.fontFamily || "sans-serif",
-        subtasks: task.subtasks ?? null
+        subtasks: task.subtasks ?? null,
+        updated_at: task.updatedAt ?? day.updatedAt ?? Date.now(),
+        deleted: task.deleted ?? false
       }));
 
-      // Atomic Upsert tasks
       let { error: tasksErr } = await supabase.from("tasks").upsert(dbTasks, {
         onConflict: "id"
       });
-      // Fallback if the `subtasks` column migration (010) hasn't been run.
-      if (tasksErr && (tasksErr.code === "PGRST204" || /subtasks/i.test(tasksErr.message || ""))) {
-        console.warn("Supabase 'subtasks' column missing — run migration 010_task_subtasks.sql. Syncing without it.");
-        const stripped = dbTasks.map(({ subtasks, ...rest }) => rest);
+
+      // Backwards-compat: strip columns whose migration hasn't been run yet.
+      if (tasksErr && (tasksErr.code === "PGRST204" || /column|subtasks|updated_at|deleted/i.test(tasksErr.message || ""))) {
+        const msg = (tasksErr.message || "").toLowerCase();
+        const dropSubtasks = msg.includes("subtasks");
+        const dropSync = msg.includes("updated_at") || msg.includes("deleted");
+        if (dropSubtasks) console.warn("Supabase 'subtasks' column missing — run migration 010_task_subtasks.sql.");
+        if (dropSync) console.warn("Supabase task sync columns missing — run migration 013_task_sync.sql.");
+
+        const stripped = dbTasks.map((t) => {
+          const row: Record<string, unknown> = { ...t };
+          // When we can't tell which column is missing, drop all optional ones.
+          if (dropSubtasks || !dropSync) delete row.subtasks;
+          if (dropSync || !dropSubtasks) { delete row.updated_at; delete row.deleted; }
+          return row;
+        });
         ({ error: tasksErr } = await supabase.from("tasks").upsert(stripped, { onConflict: "id" }));
+
+        // Without a `deleted` column the cloud can't carry tombstones, so
+        // propagate those deletions as an id-scoped hard delete. Still only
+        // ever touches tasks explicitly marked deleted — never "absent".
+        const tombstoneIds = day.tasks.filter((t) => t.deleted).map((t) => t.id);
+        if (tombstoneIds.length > 0) {
+          const { error: delErr } = await supabase
+            .from("tasks")
+            .delete()
+            .eq("user_id", userId)
+            .in("id", tombstoneIds);
+          if (delErr) console.warn("Tombstone delete fallback failed:", delErr);
+        }
       }
       if (tasksErr) throw tasksErr;
-
-      // 3. Remove tasks that are no longer in the list (deleted locally)
-      const taskIds = dbTasks.map(t => t.id);
-      const { error: cleanErr } = await supabase
-        .from("tasks")
-        .delete()
-        .eq("day_id", day.id)
-        .eq("user_id", userId)
-        .not("id", "in", `(${taskIds.join(",")})`);
-      
-      if (cleanErr) {
-        console.warn("Dangling task cleanup warning:", cleanErr);
-      }
-    } else {
-      // If the post-it has no tasks, remove all tasks for this day
-      const { error: clearAllErr } = await supabase
-        .from("tasks")
-        .delete()
-        .eq("day_id", day.id)
-        .eq("user_id", userId);
-      
-      if (clearAllErr) throw clearAllErr;
     }
 
     return true;
@@ -255,7 +267,9 @@ export async function pullAllDaysFromSupabase(userId: string): Promise<Day[]> {
             penColor: t.pen_color || "#1f2937",
             fontFamily: t.font_family || "sans-serif"
           },
-          subtasks: Array.isArray(t.subtasks) ? t.subtasks : undefined
+          subtasks: Array.isArray(t.subtasks) ? t.subtasks : undefined,
+          updatedAt: t.updated_at ? Number(t.updated_at) : 0,
+          deleted: !!t.deleted
         });
       }
     });
