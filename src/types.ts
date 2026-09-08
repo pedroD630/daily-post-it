@@ -78,7 +78,7 @@ export interface Settings {
   liquidGlass?: boolean; // Apple-style frosted translucent surfaces
 }
 
-export type AppView = "main" | "history" | "settings" | "profile" | "shop" | "insights" | "goals" | "streak" | "progress" | "beliefs";
+export type AppView = "main" | "history" | "settings" | "profile" | "shop" | "insights" | "goals" | "streak" | "progress" | "beliefs" | "pioneer";
 
 /**
  * The user's daily affirmations, stored as a single ordered list under the
@@ -165,4 +165,43 @@ export interface Checkpoint {
   source: "ai" | "user";         // who created it
   updatedAt?: number;            // last-write-wins for cross-device merge
   deleted?: boolean;             // tombstone — soft delete so deletions sync
+}
+
+/* -------------------------------------------------------------------------
+ * Field service (aba Pioneiro). All local — no network, no cost.
+ * ---------------------------------------------------------------------- */
+
+/** One field-service outing. Duration is stored in whole minutes. */
+export interface FieldEntry {
+  id: string;              // crypto.randomUUID()
+  date: string;            // "YYYY-MM-DD" (local calendar date)
+  minutes: number;         // total duration in minutes
+  createdAt: number;
+  source: "timer" | "manual";
+  updatedAt?: number;     // last-write-wins across devices
+  deleted?: boolean;      // tombstone — absence never deletes
+}
+
+/**
+ * A month that has already been reported. `totalMinutes` is a snapshot taken
+ * when the PDF was generated — editing entries afterwards must not silently
+ * change a report that was already handed in.
+ */
+export interface MonthlyReport {
+  id: string;              // "YYYY-MM"
+  serviceYear: string;     // "2026-2027"
+  totalMinutes: number;
+  bibleStudies: number;
+  participated: boolean;
+  notes: string;
+  generatedAt: number;
+  updatedAt?: number;
+  deleted?: boolean;
+}
+
+/** Bible studies conducted in a given month, entered by the user. */
+export interface BibleStudyCount {
+  id: string;              // "YYYY-MM"
+  count: number;
+  updatedAt?: number;
 }

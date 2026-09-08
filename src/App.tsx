@@ -25,6 +25,9 @@ import { Belief, Checkpoint, Habit } from "./types";
 import BeliefsView from "./components/BeliefsView";
 import AffirmationModal from "./components/AffirmationModal";
 import AffirmationEditor from "./components/AffirmationEditor";
+import PioneerView from "./components/pioneer/PioneerView";
+import { getActiveTimer } from "./utils/fieldTimer";
+import { syncPioneerData } from "./db/pioneerSync";
 import { AffirmationSession, getPendingSession, markSessionDone } from "./utils/affirmationScheduler";
 import { ParsedCheckpoint } from "./utils/checkpointParser";
 import SyncIndicator, { SyncState } from "./components/SyncIndicator";
@@ -137,6 +140,12 @@ export default function App() {
   const [affirmationOpen, setAffirmationOpen] = useState(false);
   // Editor opened straight from Settings, independently of the time windows.
   const [affirmationEditorOpen, setAffirmationEditorOpen] = useState(false);
+
+  // Field-service stopwatch. Restored from the stored timestamp on mount so
+  // the badge is right even if the app was closed mid-outing.
+  const [timerRunning, setTimerRunning] = useState(() => getActiveTimer() !== null);
+  // Bumped after each cloud refresh so PioneerView re-reads what the merge wrote.
+  const [pioneerSyncTick, setPioneerSyncTick] = useState(0);
 
   // Command palette + cross-view navigation helpers
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -539,6 +548,14 @@ export default function App() {
           }
         } catch (e) {
           console.warn("Affirmations pull/merge failed:", e);
+        }
+        try {
+          // Pioneiro module. Entirely separate from the days/tasks sync above:
+          // its own tables, its own merge, nothing shared.
+          await syncPioneerData(uid);
+          setPioneerSyncTick((t) => t + 1);
+        } catch (e) {
+          console.warn("Pioneer pull/merge failed:", e);
         }
       }
       await loadInitialData();
@@ -1409,6 +1426,7 @@ export default function App() {
         currentUserPhoto={currentUser?.photoURL}
         onOpenPalette={() => setPaletteOpen(true)}
         affirmationPending={pendingSession !== null && !affirmationOpen}
+        timerRunning={timerRunning}
         onOpenAffirmations={() => setAffirmationOpen(true)}
       />
 
@@ -1647,6 +1665,14 @@ export default function App() {
                 onDeleteCheckpoint={handleDeleteCheckpoint}
                 onSaveHabit={handleSaveHabit}
                 onDeleteHabit={handleDeleteHabit}
+              />
+            )}
+
+            {currentView === "pioneer" && (
+              <PioneerView
+                timerRunning={timerRunning}
+                onTimerRunningChange={setTimerRunning}
+                syncTick={pioneerSyncTick}
               />
             )}
 
