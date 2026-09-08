@@ -178,6 +178,8 @@ export interface FieldEntry {
   minutes: number;         // total duration in minutes
   createdAt: number;
   source: "timer" | "manual";
+  updatedAt?: number;     // last-write-wins across devices
+  deleted?: boolean;      // tombstone — absence never deletes
 }
 
 /**
@@ -193,10 +195,13 @@ export interface MonthlyReport {
   participated: boolean;
   notes: string;
   generatedAt: number;
+  updatedAt?: number;
+  deleted?: boolean;
 }
 
 /** Bible studies conducted in a given month, entered by the user. */
 export interface BibleStudyCount {
   id: string;              // "YYYY-MM"
   count: number;
+  updatedAt?: number;
 }

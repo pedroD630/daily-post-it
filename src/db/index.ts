@@ -655,12 +655,39 @@ function idbDelete(store: string, id: string): Promise<void> {
   }));
 }
 
-export const getAllFieldEntries = () => idbGetAll<FieldEntry>("field_entries");
-export const saveFieldEntry = (entry: FieldEntry) => idbPut("field_entries", entry);
-export const deleteFieldEntry = (id: string) => idbDelete("field_entries", id);
+/* Raw getters include tombstones — only the sync layer wants those. */
+export const getAllFieldEntriesRaw = () => idbGetAll<FieldEntry>("field_entries");
+export const getAllMonthlyReportsRaw = () => idbGetAll<MonthlyReport>("monthly_reports");
 
-export const getAllMonthlyReports = () => idbGetAll<MonthlyReport>("monthly_reports");
-export const saveMonthlyReport = (report: MonthlyReport) => idbPut("monthly_reports", report);
+export async function getAllFieldEntries(): Promise<FieldEntry[]> {
+  return (await getAllFieldEntriesRaw()).filter((e) => !e.deleted);
+}
+
+/** Returns the stamped record so the caller can push exactly what was stored. */
+export async function saveFieldEntry(entry: FieldEntry): Promise<FieldEntry> {
+  const stamped: FieldEntry = { ...entry, updatedAt: Date.now() };
+  await idbPut("field_entries", stamped);
+  return stamped;
+}
+
+/** Writes a tombstone rather than dropping the row, so the deletion syncs. */
+export async function deleteFieldEntry(id: string): Promise<FieldEntry | null> {
+  const existing = (await getAllFieldEntriesRaw()).find((e) => e.id === id);
+  if (!existing) return null;
+  const tombstone: FieldEntry = { ...existing, deleted: true, updatedAt: Date.now() };
+  await idbPut("field_entries", tombstone);
+  return tombstone;
+}
+
+export async function getAllMonthlyReports(): Promise<MonthlyReport[]> {
+  return (await getAllMonthlyReportsRaw()).filter((r) => !r.deleted);
+}
+
+export async function saveMonthlyReport(report: MonthlyReport): Promise<MonthlyReport> {
+  const stamped: MonthlyReport = { ...report, updatedAt: Date.now() };
+  await idbPut("monthly_reports", stamped);
+  return stamped;
+}
 
 export const getAllBibleStudies = () => idbGetAll<BibleStudyCount>("bible_studies");
 
@@ -669,26 +696,53 @@ export async function getBibleStudies(monthId: string): Promise<number> {
   return all.find((b) => b.id === monthId)?.count ?? 0;
 }
 
-export async function setBibleStudies(monthId: string, count: number): Promise<void> {
-  await idbPut("bible_studies", { id: monthId, count: Math.max(0, Math.floor(count)) });
+export async function setBibleStudies(monthId: string, count: number): Promise<BibleStudyCount> {
+  const stamped: BibleStudyCount = {
+    id: monthId,
+    count: Math.max(0, Math.floor(count)),
+    updatedAt: Date.now(),
+  };
+  await idbPut("bible_studies", stamped);
+  return stamped;
 }
+
+/** Used by the sync layer to write a merged record without re-stamping it. */
+export const putPioneerRecord = (
+  store: "field_entries" | "monthly_reports" | "bible_studies",
+  value: unknown
+) => idbPut(store, value);
 
 /** Reporter name, reused across reports. Kept beside the other settings. */
 const REPORTER_NAME_KEY = "reporter_name";
 
-export async function getReporterName(): Promise<string> {
+export interface ReporterName {
+  name: string;
+  updatedAt: number;
+}
+
+export async function getReporterNameRecord(): Promise<ReporterName> {
   const db = await initDB();
   return new Promise((resolve, reject) => {
     const req = db.transaction("settings", "readonly").objectStore("settings").get(REPORTER_NAME_KEY);
-    req.onsuccess = () => resolve((req.result as string) || "");
+    req.onsuccess = () => {
+      const v = req.result;
+      // Earlier builds stored a bare string; keep reading those.
+      if (typeof v === "string") resolve({ name: v, updatedAt: 0 });
+      else resolve((v as ReporterName) ?? { name: "", updatedAt: 0 });
+    };
     req.onerror = () => reject(req.error);
   });
 }
 
-export async function setReporterName(name: string): Promise<void> {
+export async function getReporterName(): Promise<string> {
+  return (await getReporterNameRecord()).name;
+}
+
+export async function setReporterName(name: string, updatedAt = Date.now()): Promise<void> {
   const db = await initDB();
   return new Promise((resolve, reject) => {
-    const req = db.transaction("settings", "readwrite").objectStore("settings").put(name, REPORTER_NAME_KEY);
+    const req = db.transaction("settings", "readwrite").objectStore("settings")
+      .put({ name, updatedAt } satisfies ReporterName, REPORTER_NAME_KEY);
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
   });

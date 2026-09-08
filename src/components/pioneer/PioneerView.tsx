@@ -23,15 +23,21 @@ import HistoryTab from "./HistoryTab";
 import EntryFormSheet from "./EntryFormSheet";
 import ReportFormSheet from "./ReportFormSheet";
 import ConfirmSheet from "../ConfirmSheet";
+import { auth } from "../../db/firebase";
+import {
+  pushFieldEntry, pushMonthlyReport, pushBibleStudies, pushReporterName,
+} from "../../db/pioneerSync";
 
 type SubTab = "register" | "history";
 
 interface Props {
   timerRunning: boolean;
   onTimerRunningChange: (running: boolean) => void;
+  /** Bumped by App after each cloud refresh so this view re-reads IndexedDB. */
+  syncTick?: number;
 }
 
-export default function PioneerView({ timerRunning, onTimerRunningChange }: Props) {
+export default function PioneerView({ timerRunning, onTimerRunningChange, syncTick = 0 }: Props) {
   const [tab, setTab] = useState<SubTab>("register");
   const [entries, setEntries] = useState<FieldEntry[]>([]);
   const [reports, setReports] = useState<MonthlyReport[]>([]);
@@ -62,7 +68,7 @@ export default function PioneerView({ timerRunning, onTimerRunningChange }: Prop
     setName(n);
   }, [currentMonth]);
 
-  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => { void reload(); }, [reload, syncTick]);
 
   const handleStart = async () => {
     startTimer();
@@ -89,17 +95,26 @@ export default function PioneerView({ timerRunning, onTimerRunningChange }: Prop
     setEntrySheetOpen(true);
   };
 
+  // Local write first, then a background push — the same order the rest of
+  // the app uses, so an offline save is never lost waiting on the network.
+  // The next cloud refresh reconciles anything a failed push left behind.
+  const uid = () => auth.currentUser?.uid;
+
   const handleSaveEntry = async (entry: FieldEntry) => {
-    await saveFieldEntry(entry);
+    const stamped = await saveFieldEntry(entry);
     setEntrySheetOpen(false);
     setPresetMinutes(undefined);
     await reload();
+    const id = uid();
+    if (id) void pushFieldEntry(stamped, id);
   };
 
-  const handleDeleteEntry = async (id: string) => {
-    await deleteFieldEntry(id);
+  const handleDeleteEntry = async (entryId: string) => {
+    const tombstone = await deleteFieldEntry(entryId);
     setEntrySheetOpen(false);
     await reload();
+    const id = uid();
+    if (id && tombstone) void pushFieldEntry(tombstone, id);
   };
 
   const handleCloseEntrySheet = () => {
@@ -115,7 +130,9 @@ export default function PioneerView({ timerRunning, onTimerRunningChange }: Prop
 
   const handleStudiesChange = async (n: number) => {
     setStudies(n);
-    await setBibleStudies(currentMonth, n);
+    const stamped = await setBibleStudies(currentMonth, n);
+    const id = uid();
+    if (id) void pushBibleStudies(stamped, id);
   };
 
   const handleGenerate = async (data: { name: string; bibleStudies: number; notes: string }) => {
@@ -131,7 +148,7 @@ export default function PioneerView({ timerRunning, onTimerRunningChange }: Prop
     });
 
     // Snapshot: editing entries later must not change a report already filed.
-    await saveMonthlyReport({
+    const stamped = await saveMonthlyReport({
       id: reportMonth,
       serviceYear: getServiceYear(new Date(reportMonth + "-01T00:00:00")),
       totalMinutes,
@@ -140,9 +157,16 @@ export default function PioneerView({ timerRunning, onTimerRunningChange }: Prop
       notes: data.notes,
       generatedAt: Date.now(),
     });
-    await setReporterName(data.name);
+    const nameStamp = Date.now();
+    await setReporterName(data.name, nameStamp);
     setReportMonth(null);
     await reload();
+
+    const id = uid();
+    if (id) {
+      void pushMonthlyReport(stamped, id);
+      void pushReporterName(data.name, nameStamp, id);
+    }
   };
 
   const editingMonthReported = editingEntry
