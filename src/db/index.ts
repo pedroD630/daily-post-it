@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { AffirmationList, Belief, Checkpoint, Day, Goal, Habit, Settings, Task } from "../types";
+import { AffirmationList, Belief, BibleStudyCount, Checkpoint, Day, FieldEntry, Goal, Habit, MonthlyReport, Settings, Task } from "../types";
 import { BELIEF_SEEDS } from "../constants/beliefs-seed";
 
 const DB_NAME = "postit_db";
@@ -14,7 +14,8 @@ const DB_NAME = "postit_db";
 // v6: introduced "habits" store (quit-habit streak tracker)
 // v7: introduced "beliefs" store (belief breaker)
 // v8: introduced "affirmations" store (single ordered list keyed by "list")
-const DB_VERSION = 8;
+// v9: field service (aba Pioneiro): field_entries, monthly_reports, bible_studies
+const DB_VERSION = 9;
 const POINTS_BALANCE_KEY = "balance";
 const AI_CHAT_KEY = "default";
 const BELIEFS_SEEDED_KEY = "beliefs_seeded_v1";
@@ -100,6 +101,16 @@ export function initDB(): Promise<IDBDatabase> {
       // v7: negative beliefs being dismantled by evidence
       if (!db.objectStoreNames.contains("beliefs")) {
         db.createObjectStore("beliefs", { keyPath: "id" });
+      }
+      // v9: field service — outings, generated reports, bible-study counts
+      if (!db.objectStoreNames.contains("field_entries")) {
+        db.createObjectStore("field_entries", { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains("monthly_reports")) {
+        db.createObjectStore("monthly_reports", { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains("bible_studies")) {
+        db.createObjectStore("bible_studies", { keyPath: "id" });
       }
       // v8: daily affirmations, one ordered list keyed by "list"
       if (!db.objectStoreNames.contains("affirmations")) {
@@ -613,4 +624,72 @@ export async function saveAffirmations(items: string[]): Promise<AffirmationList
 export async function getAffirmations(): Promise<AffirmationList> {
   const existing = await getAffirmationList();
   return existing ?? { id: AFFIRMATIONS_KEY, items: [], updatedAt: 0 };
+}
+
+/* -------------------------------------------------------------------------
+ * Field service (v9). Local only — the spec is explicit that this feature
+ * costs nothing and makes no network calls, so there is no Supabase mirror.
+ * ---------------------------------------------------------------------- */
+
+function idbGetAll<T>(store: string): Promise<T[]> {
+  return initDB().then((db) => new Promise<T[]>((resolve, reject) => {
+    const req = db.transaction(store, "readonly").objectStore(store).getAll();
+    req.onsuccess = () => resolve((req.result as T[]) || []);
+    req.onerror = () => reject(req.error);
+  }));
+}
+
+function idbPut(store: string, value: unknown): Promise<void> {
+  return initDB().then((db) => new Promise<void>((resolve, reject) => {
+    const req = db.transaction(store, "readwrite").objectStore(store).put(value);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  }));
+}
+
+function idbDelete(store: string, id: string): Promise<void> {
+  return initDB().then((db) => new Promise<void>((resolve, reject) => {
+    const req = db.transaction(store, "readwrite").objectStore(store).delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  }));
+}
+
+export const getAllFieldEntries = () => idbGetAll<FieldEntry>("field_entries");
+export const saveFieldEntry = (entry: FieldEntry) => idbPut("field_entries", entry);
+export const deleteFieldEntry = (id: string) => idbDelete("field_entries", id);
+
+export const getAllMonthlyReports = () => idbGetAll<MonthlyReport>("monthly_reports");
+export const saveMonthlyReport = (report: MonthlyReport) => idbPut("monthly_reports", report);
+
+export const getAllBibleStudies = () => idbGetAll<BibleStudyCount>("bible_studies");
+
+export async function getBibleStudies(monthId: string): Promise<number> {
+  const all = await getAllBibleStudies();
+  return all.find((b) => b.id === monthId)?.count ?? 0;
+}
+
+export async function setBibleStudies(monthId: string, count: number): Promise<void> {
+  await idbPut("bible_studies", { id: monthId, count: Math.max(0, Math.floor(count)) });
+}
+
+/** Reporter name, reused across reports. Kept beside the other settings. */
+const REPORTER_NAME_KEY = "reporter_name";
+
+export async function getReporterName(): Promise<string> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction("settings", "readonly").objectStore("settings").get(REPORTER_NAME_KEY);
+    req.onsuccess = () => resolve((req.result as string) || "");
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function setReporterName(name: string): Promise<void> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction("settings", "readwrite").objectStore("settings").put(name, REPORTER_NAME_KEY);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
 }

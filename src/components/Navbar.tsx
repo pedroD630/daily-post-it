@@ -4,7 +4,7 @@
  */
 
 import React from "react";
-import { History, Plus, ShoppingBag, LayoutGrid, Brain } from "lucide-react";
+import { History, Plus, ShoppingBag, LayoutGrid, Brain, BookOpen } from "lucide-react";
 import { AppView } from "../types";
 import { FEATURES } from "../constants/features";
 
@@ -15,10 +15,12 @@ interface NavbarProps {
   onOpenPalette?: () => void;
   /** Affirmation session is open and not yet confirmed — shows a red dot. */
   affirmationPending?: boolean;
+  /** Field-service stopwatch is running — pulsing dot on the Pioneiro icon. */
+  timerRunning?: boolean;
   onOpenAffirmations?: () => void;
 }
 
-export default function Navbar({ currentView, onViewChange, currentUserPhoto, onOpenPalette, affirmationPending, onOpenAffirmations }: NavbarProps) {
+export default function Navbar({ currentView, onViewChange, currentUserPhoto, onOpenPalette, affirmationPending, onOpenAffirmations, timerRunning }: NavbarProps) {
   const itemClass = (active: boolean) =>
     `flex items-center justify-center w-11 h-12 rounded-xl transition-all duration-200 ${
       active
@@ -76,6 +78,24 @@ export default function Navbar({ currentView, onViewChange, currentUserPhoto, on
           className={itemClass(currentView === "beliefs")}
         >
           <Brain className="w-5 h-5" />
+        </button>
+
+        {/* Pioneiro — serviço de campo. The dot is visible from every tab so
+            a running stopwatch can't be forgotten. */}
+        <button
+          id="nav-btn-pioneer"
+          aria-label={timerRunning ? "Pioneiro — cronômetro rodando" : "Pioneiro"}
+          title="Pioneiro"
+          onClick={() => onViewChange("pioneer")}
+          className={`${itemClass(currentView === "pioneer")} relative`}
+        >
+          {timerRunning && (
+            <span
+              aria-hidden
+              className="absolute top-1 right-1 w-2 h-2 bg-sky-500 rounded-full ring-2 ring-white dark:ring-slate-950 animate-pulse"
+            />
+          )}
+          <BookOpen className="w-5 h-5" />
         </button>
 
         {/* Shop — hidden while FEATURES.shop is off (nothing removed) */}
