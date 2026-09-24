@@ -391,6 +391,23 @@ if (typeof window !== "undefined") {
  * those fall back to `cloudWinsDayLevel`, which preserves the old
  * day-level last-write-wins behaviour for legacy data.
  */
+/**
+ * Takes the cloud's version of a task, but keeps the local checklist when the
+ * cloud copy has no `subtasks` FIELD AT ALL.
+ *
+ * That only happens when the `subtasks` column is missing from the tasks
+ * table (migration 010 not run): the push strips the column and the row
+ * lands with a fresh updated_at but no micro-steps, which would then erase
+ * the checklist on every other device. An emptied checklist arrives as `[]`,
+ * not `undefined`, so clearing one on purpose still propagates.
+ */
+function adoptCloudTask(cloud: Task, local: Task): Task {
+  if (cloud.subtasks === undefined && local.subtasks?.length) {
+    return { ...cloud, subtasks: local.subtasks };
+  }
+  return cloud;
+}
+
 export function mergeDay(local: Day | null, cloud: Day, cloudWinsDayLevel: boolean): Day {
   if (!local) return cloud;
 
@@ -406,8 +423,8 @@ export function mergeDay(local: Day | null, cloud: Day, cloudWinsDayLevel: boole
     }
     const lu = l.updatedAt ?? 0;
     const cu = c.updatedAt ?? 0;
-    if (cu > lu) byId.set(c.id, c);
-    else if (cu === lu && cloudWinsDayLevel) byId.set(c.id, c);
+    if (cu > lu) byId.set(c.id, adoptCloudTask(c, l));
+    else if (cu === lu && cloudWinsDayLevel) byId.set(c.id, adoptCloudTask(c, l));
     // else keep local — including the local-only case, which is the whole point
   }
 
