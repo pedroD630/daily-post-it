@@ -11,8 +11,8 @@
  * off-by-one that `new Date("YYYY-MM-DD")` introduces.
  */
 
-import { Day, Task } from "../types";
-import { extractKeywords, getTopKeywords } from "./keywordExtractor";
+import { Day, Goal, Task } from "../types";
+import { normalize } from "./goalMatching";
 
 export type PeriodUnit = "dia" | "semana" | "mês" | "ano";
 export type StatusFilter = "all" | "completed" | "incomplete";
@@ -46,38 +46,71 @@ export function getPeriodStartDate(amount: number, unit: PeriodUnit): Date {
   return now;
 }
 
-export function getPieChartData(
+function matchesStatus(task: Task, statusFilter: StatusFilter): boolean {
+  return (
+    statusFilter === "all" ||
+    (statusFilter === "completed" && task.completed) ||
+    (statusFilter === "incomplete" && !task.completed)
+  );
+}
+
+/** Every distinct goal tag, normalized for matching and kept for display. */
+export function collectGoalTags(goals: Goal[]): Array<{ needle: string; label: string }> {
+  const seen = new Map<string, string>();
+  for (const goal of goals) {
+    for (const kw of goal.keywords ?? []) {
+      const needle = normalize(kw);
+      // Same floor goal matching uses — a tag too short to match a goal
+      // would never match here either, so it is left out rather than
+      // shown as a permanent zero.
+      if (needle.length < 3 || seen.has(needle)) continue;
+      seen.set(needle, kw.trim() || needle);
+    }
+  }
+  return [...seen.entries()].map(([needle, label]) => ({ needle, label }));
+}
+
+/**
+ * How often each goal tag appears in task text over the chosen period.
+ *
+ * The tags are read straight off the goals, using the same normalize +
+ * substring rule as goalMatching, so the slices are exactly the tags the
+ * goals themselves recognise. Registering a new tag on a goal makes it
+ * eligible immediately; it only shows up once a task in the period uses
+ * it, and tags nobody used are dropped instead of drawn as empty slices.
+ *
+ * A task counts once for every distinct tag it contains, so the slices
+ * measure tag usage rather than splitting a total.
+ */
+export function getGoalTagPieData(
   allDays: Day[],
+  goals: Goal[],
   periodStart: Date,
   statusFilter: StatusFilter
 ): PieDatum[] {
+  const tags = collectGoalTags(goals);
+  if (tags.length === 0) return [];
+
   const startTs = periodStart.getTime();
+  const counts = new Map<string, number>();
 
-  // 1. Days within the period (ignore crumpled snapshots to avoid double count)
-  const filteredDays = allDays.filter((day) => !day.discarded && dayStartMs(day.id) >= startTs);
-
-  // 2. Tasks matching the status filter
-  const tasks: Task[] = [];
-  for (const day of filteredDays) {
+  for (const day of allDays) {
+    // Skip crumpled snapshots so a discarded day can't double-count.
+    if (day.discarded || dayStartMs(day.id) < startTs) continue;
     for (const task of day.tasks) {
-      const include =
-        statusFilter === "all" ||
-        (statusFilter === "completed" && task.completed) ||
-        (statusFilter === "incomplete" && !task.completed);
-      if (include && task.text.trim().length > 0) tasks.push(task);
+      if (!matchesStatus(task, statusFilter)) continue;
+      const text = normalize(task.text);
+      if (!text) continue;
+      for (const { needle } of tags) {
+        if (text.includes(needle)) counts.set(needle, (counts.get(needle) ?? 0) + 1);
+      }
     }
   }
 
-  // 3. Top 8 keywords + "outros"
-  const freq = extractKeywords(tasks);
-  const top = getTopKeywords(freq, 8);
-  const totalTop = top.reduce((s, k) => s + k.count, 0);
-  const totalAll = [...freq.values()].reduce((s, v) => s + v, 0);
-  const others = totalAll - totalTop;
-
-  const result: PieDatum[] = top.map((k) => ({ name: k.keyword, value: k.count }));
-  if (others > 0) result.push({ name: "outros", value: others });
-  return result;
+  return tags
+    .map(({ needle, label }) => ({ name: label, value: counts.get(needle) ?? 0 }))
+    .filter((d) => d.value > 0)
+    .sort((a, b) => b.value - a.value);
 }
 
 function completedOn(allDays: Day[], id: string): number {
