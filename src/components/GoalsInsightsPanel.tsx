@@ -56,7 +56,7 @@ export default function GoalsInsightsPanel({ goals, allDays, pointsBalance, gemi
   const enhancedCharts = (
     <>
       <hr className="border-slate-200/60 dark:border-slate-800/60" />
-      <KeywordPieChart allDays={allDays} />
+      <KeywordPieChart allDays={allDays} goals={goals} />
       <hr className="border-slate-200/60 dark:border-slate-800/60" />
       <ProductivityLineChart allDays={allDays} />
     </>
