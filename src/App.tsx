@@ -31,6 +31,8 @@ import { syncPioneerData } from "./db/pioneerSync";
 import { withStatus } from "./constants/taskStatus";
 import { applySubtasks } from "./utils/subtasks";
 import { migrateTasksToStatus } from "./db/migrations";
+import ViewToggle, { MainViewMode, getStoredViewMode, storeViewMode } from "./components/ViewToggle";
+import KanbanBoard from "./components/kanban/KanbanBoard";
 import { AffirmationSession, getPendingSession, markSessionDone } from "./utils/affirmationScheduler";
 import { ParsedCheckpoint } from "./utils/checkpointParser";
 import SyncIndicator, { SyncState } from "./components/SyncIndicator";
@@ -149,6 +151,13 @@ export default function App() {
   const [timerRunning, setTimerRunning] = useState(() => getActiveTimer() !== null);
   // Bumped after each cloud refresh so PioneerView re-reads what the merge wrote.
   const [pioneerSyncTick, setPioneerSyncTick] = useState(0);
+
+  // Post-it vs Kanban. Device preference, so it lives in localStorage.
+  const [viewMode, setViewMode] = useState<MainViewMode>(() => getStoredViewMode());
+  const changeViewMode = (mode: MainViewMode) => {
+    setViewMode(mode);
+    storeViewMode(mode);
+  };
 
   // Command palette + cross-view navigation helpers
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -1020,6 +1029,25 @@ export default function App() {
     await saveDayWithSync(updatedDay);
   };
 
+  /** Kanban move/reorder. Same persistence path as the post-it reorder. */
+  const handleBoardTasksChange = async (updatedTasks: Task[]) => {
+    if (!todayDay) return;
+    const updatedDay = { ...todayDay, tasks: updatedTasks };
+    setTodayDay(updatedDay);
+    await saveDayWithSync(updatedDay);
+  };
+
+  /** Ticking a micro-step from a Kanban card, where only the ids are known. */
+  const handleToggleSubtaskById = async (taskId: string, subtaskId: string) => {
+    if (!todayDay) return;
+    const task = todayDay.tasks.find((t) => t.id === taskId);
+    if (!task) return;
+    const next = (task.subtasks ?? []).map((s) =>
+      s.id === subtaskId ? { ...s, completed: !s.completed } : s
+    );
+    await handleSubtasksChange(taskId, next);
+  };
+
   // Composite-task checklist: persist micro-steps and auto-complete the
   // parent task when every step is checked (and revert if a step is
   // unchecked while it was auto-completed). Points are derived from
@@ -1545,8 +1573,23 @@ export default function App() {
             className="w-full flex justify-center"
             id={`view-transition-wrapper-${currentView}`}
           >
-            {currentView === "main" && todayDay && (
+            {currentView === "main" && todayDay && viewMode === "board" && (
+              <div className="w-full flex flex-col gap-4" id="main-board-viewbox">
+                <ViewToggle mode={viewMode} onChange={changeViewMode} />
+                <p className="text-center font-mono text-[11px] text-slate-400">{todayDay.date}</p>
+                <KanbanBoard
+                  day={todayDay}
+                  onTasksChange={handleBoardTasksChange}
+                  onToggleSubtask={handleToggleSubtaskById}
+                />
+              </div>
+            )}
+
+            {currentView === "main" && todayDay && viewMode === "postit" && (
               <div className="relative w-full max-w-md" id="main-view-viewbox">
+                <div className="mb-4">
+                  <ViewToggle mode={viewMode} onChange={changeViewMode} />
+                </div>
                 {/* Crumpling anim wrapper */}
                 <motion.div
                   id="main-animated-postit-wrapper"

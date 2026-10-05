@@ -16,6 +16,7 @@ import {
   collectGoalTags,
   getGoalTagPieData,
   getPeriodStartDate,
+  STATUS_FILTER_OPTIONS,
   PeriodUnit,
   StatusFilter,
 } from "../../utils/insightsData";
@@ -79,9 +80,9 @@ export default function KeywordPieChart({ allDays, goals }: { allDays: Day[]; go
           className={controlClass}
           aria-label="Filtrar por status da tarefa"
         >
-          <option value="all">Ambas</option>
-          <option value="completed">Concluídas</option>
-          <option value="incomplete">Não concluídas</option>
+          {STATUS_FILTER_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
         </select>
       </div>
 
