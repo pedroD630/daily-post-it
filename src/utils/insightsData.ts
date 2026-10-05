@@ -11,11 +11,20 @@
  * off-by-one that `new Date("YYYY-MM-DD")` introduces.
  */
 
-import { Day, Goal, Task } from "../types";
+import { Day, Goal, Task, TaskStatus } from "../types";
 import { normalize } from "./goalMatching";
 
 export type PeriodUnit = "dia" | "semana" | "mês" | "ano";
-export type StatusFilter = "all" | "completed" | "incomplete";
+/** "all" plus one entry per TaskStatus. */
+export type StatusFilter = "all" | TaskStatus;
+
+export const STATUS_FILTER_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
+  { value: "all",     label: "Todas" },
+  { value: "done",    label: "Concluídas" },
+  { value: "todo",    label: "Não iniciadas" },
+  { value: "doing",   label: "Em andamento" },
+  { value: "skipped", label: "Não executadas" },
+];
 
 export interface PieDatum { name: string; value: number; }
 export interface LineDataPoint { label: string; value: number; }
@@ -47,11 +56,7 @@ export function getPeriodStartDate(amount: number, unit: PeriodUnit): Date {
 }
 
 function matchesStatus(task: Task, statusFilter: StatusFilter): boolean {
-  return (
-    statusFilter === "all" ||
-    (statusFilter === "completed" && task.completed) ||
-    (statusFilter === "incomplete" && !task.completed)
-  );
+  return statusFilter === "all" || task.status === statusFilter;
 }
 
 /** Every distinct goal tag, normalized for matching and kept for display. */
@@ -116,7 +121,7 @@ export function getGoalTagPieData(
 function completedOn(allDays: Day[], id: string): number {
   return allDays
     .filter((d) => !d.discarded && baseId(d.id) === id)
-    .reduce((sum, d) => sum + d.tasks.filter((t) => t.completed).length, 0);
+    .reduce((sum, d) => sum + d.tasks.filter((t) => t.status === "done").length, 0);
 }
 
 export function getWeeklyProductivity(allDays: Day[]): LineDataPoint[] {
@@ -156,7 +161,7 @@ export function getYearlyProductivity(allDays: Day[]): LineDataPoint[] {
     const prefix = `${year}-${String(m + 1).padStart(2, "0")}`;
     const count = allDays
       .filter((day) => !day.discarded && baseId(day.id).startsWith(prefix))
-      .reduce((sum, day) => sum + day.tasks.filter((t) => t.completed).length, 0);
+      .reduce((sum, day) => sum + day.tasks.filter((t) => t.status === "done").length, 0);
     result.push({ label: MONTHS_PT[m], value: count });
   }
   return result;

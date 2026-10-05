@@ -69,7 +69,7 @@ export function buildSystemPrompt(days: Day[], goals: Goal[], pointsBalance: num
       const text = t.text.trim();
       if (!text) continue;
       const line = `- [${d.id.slice(0, 10)}] ${text.slice(0, MAX_TASK_TEXT_LEN)}`;
-      if (t.completed) {
+      if (t.status === "done") {
         if (completedList.length < MAX_ACTIVITY_SAMPLE) completedList.push(line);
       } else {
         if (pendingList.length < MAX_ACTIVITY_SAMPLE) pendingList.push(line);
@@ -77,8 +77,8 @@ export function buildSystemPrompt(days: Day[], goals: Goal[], pointsBalance: num
     }
   }
 
-  const completedCount = withinMonth.reduce((s, d) => s + d.tasks.filter((t) => t.completed && t.text.trim()).length, 0);
-  const pendingCount = withinMonth.reduce((s, d) => s + d.tasks.filter((t) => !t.completed && t.text.trim()).length, 0);
+  const completedCount = withinMonth.reduce((s, d) => s + d.tasks.filter((t) => t.status === "done" && t.text.trim()).length, 0);
+  const pendingCount = withinMonth.reduce((s, d) => s + d.tasks.filter((t) => t.status !== "done" && t.text.trim()).length, 0);
 
   return [
     "Você é um coach de produtividade brasileiro dentro do app Daily Post-it.",

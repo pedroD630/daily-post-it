@@ -30,7 +30,7 @@ function completedByDate(days: Day[]): Map<string, number> {
   const map = new Map<string, number>();
   for (const day of days) {
     const baseId = day.id.slice(0, 10);
-    const completed = day.tasks.filter((t) => t.completed).length;
+    const completed = day.tasks.filter((t) => t.status === "done").length;
     map.set(baseId, (map.get(baseId) || 0) + completed);
   }
   return map;
@@ -115,7 +115,7 @@ export function computeStats(days: Day[]): InsightStats {
   });
 
   for (const day of days) {
-    const completed = day.tasks.filter((t) => t.completed).length;
+    const completed = day.tasks.filter((t) => t.status === "done").length;
     totalCompleted += completed;
     totalTasks += day.tasks.length;
 

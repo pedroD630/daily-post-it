@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Check, X, GripVertical, Clock, Plus, ChevronRight } from "lucide-react";
 import { Task, SubTask } from "../types";
+import { isSettled } from "../constants/taskStatus";
 import { motion, Reorder, useDragControls } from "motion/react";
 import { pointValue } from "../utils/points";
 import PointsFloat from "./PointsFloat";
@@ -59,6 +60,8 @@ export default function TaskItem({
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [localTime, setLocalTime] = useState(task.time);
   const [localReminder, setLocalReminder] = useState(task.reminderMinutes || 10);
+
+  const isDoneStatus = task.status === "done";
 
   // Composite-task checklist (micro-steps). Collapsed by default; reveals on ">".
   const [subs, setSubs] = useState<SubTask[]>(task.subtasks ?? []);
@@ -232,7 +235,7 @@ export default function TaskItem({
         isDeleteMode
           ? "ring-2 ring-red-500/80 bg-red-50/20 shadow-sm animate-shake"
           : "hover:bg-black/[0.015]"
-      } ${task.completed ? "opacity-40" : "opacity-100"}`}
+      } ${isSettled(task.status) ? "opacity-40" : "opacity-100"}`}
       style={{
         contentVisibility: "auto"
       }}
@@ -274,10 +277,10 @@ export default function TaskItem({
           <button
             id={`task-checkbox-${task.id}`}
             disabled={readOnly}
-            aria-label={task.completed ? "Mark task as incomplete" : "Mark task as complete"}
+            aria-label={isDoneStatus ? "Mark task as incomplete" : "Mark task as complete"}
             onClick={(e) => {
               e.stopPropagation();
-              const goingToCompleted = !task.completed;
+              const goingToCompleted = !isDoneStatus;
               const earned = pointValue(task.style.penColor);
               triggerPointsFloat(goingToCompleted ? earned : -earned);
               onToggleComplete(task.id);
@@ -285,10 +288,22 @@ export default function TaskItem({
             className="flex items-center justify-center w-5 h-5 border-2 rounded-sm bg-white/50 transition-all cursor-pointer focus:outline-none"
             style={{
               borderColor: task.style.penColor,
-              backgroundColor: task.completed ? task.style.penColor : "rgba(255, 255, 255, 0.5)",
+              backgroundColor: isDoneStatus ? task.style.penColor : "rgba(255, 255, 255, 0.5)",
             }}
           >
-            {task.completed && (
+            {/* One box, four readings: ticked when done, a centre dot while
+                in progress, an × when deliberately skipped, empty otherwise. */}
+            {task.status === "doing" && (
+              <span
+                aria-hidden
+                className="w-1.5 h-1.5 rounded-full"
+                style={{ backgroundColor: task.style.penColor }}
+              />
+            )}
+            {task.status === "skipped" && (
+              <X className="w-3 h-3 stroke-[3]" style={{ color: task.style.penColor }} />
+            )}
+            {isDoneStatus && (
               <Check
                 className="w-3.5 h-3.5 text-white stroke-[3.5]"
                 style={{ color: "#ffffff" }}
@@ -323,7 +338,7 @@ export default function TaskItem({
               id={`task-input-${task.id}`}
               ref={textareaRef}
               className={`w-full bg-transparent border-none p-0 focus:outline-none focus:ring-0 resize-none overflow-hidden ${getFontClass(task.style.fontFamily)} ${
-                task.completed ? "line-through text-slate-500/60" : ""
+                isDoneStatus ? "line-through text-slate-500/60" : ""
               }`}
               style={{
                 color: task.style.penColor,
@@ -342,6 +357,17 @@ export default function TaskItem({
             />
           )}
         </div>
+
+        {/* "doing" is only reachable from the Kanban, so the post-it needs a
+            cue — otherwise the state would be invisible on this screen. */}
+        {task.status === "doing" && (
+          <span
+            className="shrink-0 self-center mr-1.5 px-1.5 py-0.5 rounded font-mono text-[9px] uppercase tracking-wider bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
+            title="Em andamento"
+          >
+            em andamento
+          </span>
+        )}
 
         {/* Subtasks toggle (>) — shows when the task has micro-steps */}
         {subs.length > 0 && (

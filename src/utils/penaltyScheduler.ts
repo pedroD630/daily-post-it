@@ -36,7 +36,7 @@ function yesterdayId(): string {
 
 function totalPenalty(tasks: Task[]): number {
   return tasks
-    .filter((t) => !t.completed)
+    .filter((t) => t.status !== "done")
     .reduce((sum, t) => sum + pointValue(t.style.penColor), 0);
 }
 

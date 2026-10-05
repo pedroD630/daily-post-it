@@ -28,6 +28,9 @@ import AffirmationEditor from "./components/AffirmationEditor";
 import PioneerView from "./components/pioneer/PioneerView";
 import { getActiveTimer } from "./utils/fieldTimer";
 import { syncPioneerData } from "./db/pioneerSync";
+import { withStatus } from "./constants/taskStatus";
+import { applySubtasks } from "./utils/subtasks";
+import { migrateTasksToStatus } from "./db/migrations";
 import { AffirmationSession, getPendingSession, markSessionDone } from "./utils/affirmationScheduler";
 import { ParsedCheckpoint } from "./utils/checkpointParser";
 import SyncIndicator, { SyncState } from "./components/SyncIndicator";
@@ -271,6 +274,11 @@ export default function App() {
 
   const loadInitialData = async () => {
     try {
+      // Before anything reads tasks. Every caller runs this after a cloud
+      // pull, so rows that arrived in the old `completed` shape are converted
+      // here and pushed back up in the new shape by the next sync.
+      await migrateTasksToStatus();
+
       const loadedSettings = await getSettings();
       setSettings(loadedSettings);
       setLivePostItColor(loadedSettings.postItColor);
@@ -705,7 +713,7 @@ export default function App() {
     const newTask: Task = {
       id: crypto.randomUUID(),
       text: "",
-      completed: false,
+      status: "todo",
       completedAt: null,
       createdAt: Date.now(),
       order: todayDay.tasks.length,
@@ -735,16 +743,14 @@ export default function App() {
     let targetTaskId: string | undefined;
     let targetEventId: string | undefined;
 
+    // The post-it checkbox is binary: it only ever drives done ⇄ todo.
+    // `doing` and `skipped` are reachable from the Kanban board, and ticking
+    // the box from either of them still means "this is finished".
     const updatedTasks = todayDay.tasks.map((task) => {
       if (task.id === taskId) {
-        const nextCompleted = !task.completed;
         targetTaskId = task.calendarTaskId;
         targetEventId = task.calendarEventId;
-        return {
-          ...task,
-          completed: nextCompleted,
-          completedAt: nextCompleted ? Date.now() : null,
-        };
+        return withStatus(task, task.status === "done" ? "todo" : "done");
       }
       return task;
     });
@@ -1020,18 +1026,9 @@ export default function App() {
   // completed tasks, so no ledger write is needed — the balance follows.
   const handleSubtasksChange = async (taskId: string, subtasks: import("./types").SubTask[]) => {
     if (!todayDay) return;
-    const updatedTasks = todayDay.tasks.map((t) => {
-      if (t.id !== taskId) return t;
-      const hasSubs = subtasks.length > 0;
-      const allDone = hasSubs && subtasks.every((s) => s.completed);
-      const next: Task = { ...t, subtasks };
-      if (hasSubs) {
-        // Parent completion mirrors the checklist while it has steps.
-        if (allDone && !t.completed) { next.completed = true; next.completedAt = Date.now(); }
-        else if (!allDone && t.completed) { next.completed = false; next.completedAt = null; }
-      }
-      return next;
-    });
+    const updatedTasks = todayDay.tasks.map((t) =>
+      t.id === taskId ? applySubtasks(t, subtasks) : t
+    );
     const updatedDay = touch({ ...todayDay, tasks: updatedTasks });
     setTodayDay(updatedDay);
     await saveDay(updatedDay);

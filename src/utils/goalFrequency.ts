@@ -28,7 +28,7 @@ export function actualWeeklyFrequency(goal: Goal, allDays: Day[]): number {
   let count = 0;
   for (const day of allDays) {
     for (const task of day.tasks) {
-      if (!task.completed) continue;
+      if (task.status !== "done") continue;
       if (!task.completedAt || task.completedAt < since) continue;
       if (taskMatchesGoal(task.text, goal)) count++;
     }
@@ -62,7 +62,7 @@ export function dailyActionsForGoal(goal: Goal, allDays: Day[], days: number = 1
     const baseId = day.id.slice(0, 10);
     if (!buckets.has(baseId)) continue;
     for (const task of day.tasks) {
-      if (!task.completed) continue;
+      if (task.status !== "done") continue;
       if (!taskMatchesGoal(task.text, goal)) continue;
       // Use completedAt's date for actual bucketing when available, so a
       // task completed across midnight lands in the right calendar day.
@@ -137,7 +137,7 @@ export function lastActionAt(goal: Goal, allDays: Day[]): number | null {
   let latest: number | null = null;
   for (const day of allDays) {
     for (const task of day.tasks) {
-      if (!task.completed || !task.completedAt) continue;
+      if (task.status !== "done" || !task.completedAt) continue;
       if (!taskMatchesGoal(task.text, goal)) continue;
       if (latest === null || task.completedAt > latest) latest = task.completedAt;
     }
