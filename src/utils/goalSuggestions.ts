@@ -48,7 +48,7 @@ export function generateSuggestions(goals: Goal[], allDays: Day[]): GoalSuggesti
     let prevWeek = 0;
     for (const day of allDays) {
       for (const t of day.tasks) {
-        if (!t.completed || !t.completedAt) continue;
+        if (t.status !== "done" || !t.completedAt) continue;
         if (t.completedAt < since14 || t.completedAt >= since7) continue;
         if (taskMatchesGoal(t.text, g)) prevWeek++;
       }
@@ -59,7 +59,7 @@ export function generateSuggestions(goals: Goal[], allDays: Day[]): GoalSuggesti
     let totalAnyTime = 0;
     for (const day of allDays) {
       for (const t of day.tasks) {
-        if (!t.completed) continue;
+        if (t.status !== "done") continue;
         if (taskMatchesGoal(t.text, g)) totalAnyTime++;
       }
     }
@@ -148,7 +148,7 @@ export function generateSuggestions(goals: Goal[], allDays: Day[]): GoalSuggesti
   const since30 = Date.now() - 30 * DAY_MS;
   for (const day of allDays) {
     for (const t of day.tasks) {
-      if (!t.completed || !t.completedAt || t.completedAt < since30) continue;
+      if (t.status !== "done" || !t.completedAt || t.completedAt < since30) continue;
       const matched = active.filter((g) => taskMatchesGoal(t.text, g));
       if (matched.length < 2) continue;
       for (let i = 0; i < matched.length; i++) {

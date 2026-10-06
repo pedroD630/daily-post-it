@@ -5,6 +5,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { Day, Task } from "../types";
+import { isSettled } from "../constants/taskStatus";
 import TaskItem from "./TaskItem";
 import { Reorder } from "motion/react";
 import { Zap, AlertTriangle, Flame } from "lucide-react";
@@ -93,7 +94,11 @@ export default function PostItCard({
 
   // All-done celebration: fire confetti when the LAST task gets completed.
   // Rising-edge detection so reloads/readonly cards never re-fire.
-  const allDone = !readOnly && day.tasks.length > 0 && day.tasks.every((t) => t.completed);
+  // Done or explicitly skipped both count as "dealt with"; the celebration
+  // needs at least one real completion so a fully-skipped day stays quiet.
+  const allDone = !readOnly && day.tasks.length > 0
+    && day.tasks.every((t) => isSettled(t.status))
+    && day.tasks.some((t) => t.status === "done");
   const prevAllDoneRef = useRef(allDone);
   const [confettiBurst, setConfettiBurst] = useState(0);
   useEffect(() => {
@@ -103,8 +108,8 @@ export default function PostItCard({
     prevAllDoneRef.current = allDone;
   }, [allDone]);
   // Separate and sort tasks by explicit order field, fallback to creation time
-  const incompleteTasks = day.tasks
-    .filter((t) => !t.completed)
+  const pendingTasks = day.tasks
+    .filter((t) => !isSettled(t.status))
     .sort((a, b) => {
       const orderA = a.order !== undefined ? a.order : 0;
       const orderB = b.order !== undefined ? b.order : 0;
@@ -112,8 +117,8 @@ export default function PostItCard({
       return a.createdAt - b.createdAt;
     });
 
-  const completedTasks = day.tasks
-    .filter((t) => t.completed)
+  const settledTasks = day.tasks
+    .filter((t) => isSettled(t.status))
     .sort((a, b) => {
       const orderA = a.order !== undefined ? a.order : 0;
       const orderB = b.order !== undefined ? b.order : 0;
@@ -125,34 +130,34 @@ export default function PostItCard({
 
   const handleReorderIncomplete = (newIncomplete: Task[]) => {
     if (onReorderTasks) {
-      const reorderedIncomplete = newIncomplete.map((t, index) => ({
+      const reorderedPending = newIncomplete.map((t, index) => ({
         ...t,
         order: index,
       }));
-      const reorderedCompleted = completedTasks.map((t, index) => ({
+      const reorderedSettled = settledTasks.map((t, index) => ({
         ...t,
         order: index,
       }));
-      onReorderTasks([...reorderedIncomplete, ...reorderedCompleted]);
+      onReorderTasks([...reorderedPending, ...reorderedSettled]);
     }
   };
 
   const handleReorderCompleted = (newCompleted: Task[]) => {
     if (onReorderTasks) {
-      const reorderedIncomplete = incompleteTasks.map((t, index) => ({
+      const reorderedPending = pendingTasks.map((t, index) => ({
         ...t,
         order: index,
       }));
-      const reorderedCompleted = newCompleted.map((t, index) => ({
+      const reorderedSettled = newCompleted.map((t, index) => ({
         ...t,
         order: index,
       }));
-      onReorderTasks([...reorderedIncomplete, ...reorderedCompleted]);
+      onReorderTasks([...reorderedPending, ...reorderedSettled]);
     }
   };
 
   // Combine them cleanly for read-only static rendering
-  const sortedTasks = [...incompleteTasks, ...completedTasks];
+  const sortedTasks = [...pendingTasks, ...settledTasks];
 
   const postItBgColor = day.style.postItColor || "#fef3c7";
 
@@ -274,15 +279,15 @@ export default function PostItCard({
           </div>
         ) : (
           <div className="flex flex-col gap-4 w-full">
-            {incompleteTasks.length > 0 && (
+            {pendingTasks.length > 0 && (
               <Reorder.Group
                 axis="y"
-                values={incompleteTasks}
+                values={pendingTasks}
                 onReorder={handleReorderIncomplete}
                 as="div"
                 className="flex flex-col gap-1 w-full"
               >
-                {incompleteTasks.map((task) => {
+                {pendingTasks.map((task) => {
                   const isNew = !task.text && Date.now() - task.createdAt < 2000;
                   return (
                     <TaskItem
@@ -304,24 +309,24 @@ export default function PostItCard({
               </Reorder.Group>
             )}
 
-            {completedTasks.length > 0 && (
+            {settledTasks.length > 0 && (
               <div className="flex flex-col gap-2 pt-3 border-t border-black/10">
                 <button
                   type="button"
                   onClick={() => setShowCompleted((v) => !v)}
                   className="flex items-center gap-1 text-[10px] uppercase font-mono tracking-wider opacity-45 hover:opacity-80 pl-1 cursor-pointer w-fit"
                 >
-                  {showCompleted ? "▾" : "▸"} Concluídas ({completedTasks.length})
+                  {showCompleted ? "▾" : "▸"} Concluídas ({settledTasks.length})
                 </button>
                 {showCompleted && (
                   <Reorder.Group
                     axis="y"
-                    values={completedTasks}
+                    values={settledTasks}
                     onReorder={handleReorderCompleted}
                     as="div"
                     className="flex flex-col gap-1 w-full"
                   >
-                    {completedTasks.map((task) => (
+                    {settledTasks.map((task) => (
                       <TaskItem
                         key={task.id}
                         task={task}

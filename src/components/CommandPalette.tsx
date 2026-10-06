@@ -146,7 +146,7 @@ export default function CommandPalette({ open, onClose, days, todayId, ctx }: Co
               kind: "task",
               id: `${day.id}/${task.id}`,
               text: task.text,
-              completed: task.completed,
+              completed: task.status === "done",
               dayId: day.id,
               dayLabel,
               isToday,

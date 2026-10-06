@@ -28,6 +28,11 @@ import AffirmationEditor from "./components/AffirmationEditor";
 import PioneerView from "./components/pioneer/PioneerView";
 import { getActiveTimer } from "./utils/fieldTimer";
 import { syncPioneerData } from "./db/pioneerSync";
+import { withStatus } from "./constants/taskStatus";
+import { applySubtasks } from "./utils/subtasks";
+import { migrateTasksToStatus } from "./db/migrations";
+import ViewToggle, { MainViewMode, getStoredViewMode, storeViewMode } from "./components/ViewToggle";
+import KanbanBoard from "./components/kanban/KanbanBoard";
 import { AffirmationSession, getPendingSession, markSessionDone } from "./utils/affirmationScheduler";
 import { ParsedCheckpoint } from "./utils/checkpointParser";
 import SyncIndicator, { SyncState } from "./components/SyncIndicator";
@@ -146,6 +151,13 @@ export default function App() {
   const [timerRunning, setTimerRunning] = useState(() => getActiveTimer() !== null);
   // Bumped after each cloud refresh so PioneerView re-reads what the merge wrote.
   const [pioneerSyncTick, setPioneerSyncTick] = useState(0);
+
+  // Post-it vs Kanban. Device preference, so it lives in localStorage.
+  const [viewMode, setViewMode] = useState<MainViewMode>(() => getStoredViewMode());
+  const changeViewMode = (mode: MainViewMode) => {
+    setViewMode(mode);
+    storeViewMode(mode);
+  };
 
   // Command palette + cross-view navigation helpers
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -271,6 +283,11 @@ export default function App() {
 
   const loadInitialData = async () => {
     try {
+      // Before anything reads tasks. Every caller runs this after a cloud
+      // pull, so rows that arrived in the old `completed` shape are converted
+      // here and pushed back up in the new shape by the next sync.
+      await migrateTasksToStatus();
+
       const loadedSettings = await getSettings();
       setSettings(loadedSettings);
       setLivePostItColor(loadedSettings.postItColor);
@@ -705,7 +722,7 @@ export default function App() {
     const newTask: Task = {
       id: crypto.randomUUID(),
       text: "",
-      completed: false,
+      status: "todo",
       completedAt: null,
       createdAt: Date.now(),
       order: todayDay.tasks.length,
@@ -735,16 +752,14 @@ export default function App() {
     let targetTaskId: string | undefined;
     let targetEventId: string | undefined;
 
+    // The post-it checkbox is binary: it only ever drives done ⇄ todo.
+    // `doing` and `skipped` are reachable from the Kanban board, and ticking
+    // the box from either of them still means "this is finished".
     const updatedTasks = todayDay.tasks.map((task) => {
       if (task.id === taskId) {
-        const nextCompleted = !task.completed;
         targetTaskId = task.calendarTaskId;
         targetEventId = task.calendarEventId;
-        return {
-          ...task,
-          completed: nextCompleted,
-          completedAt: nextCompleted ? Date.now() : null,
-        };
+        return withStatus(task, task.status === "done" ? "todo" : "done");
       }
       return task;
     });
@@ -1014,24 +1029,34 @@ export default function App() {
     await saveDayWithSync(updatedDay);
   };
 
+  /** Kanban move/reorder. Same persistence path as the post-it reorder. */
+  const handleBoardTasksChange = async (updatedTasks: Task[]) => {
+    if (!todayDay) return;
+    const updatedDay = { ...todayDay, tasks: updatedTasks };
+    setTodayDay(updatedDay);
+    await saveDayWithSync(updatedDay);
+  };
+
+  /** Ticking a micro-step from a Kanban card, where only the ids are known. */
+  const handleToggleSubtaskById = async (taskId: string, subtaskId: string) => {
+    if (!todayDay) return;
+    const task = todayDay.tasks.find((t) => t.id === taskId);
+    if (!task) return;
+    const next = (task.subtasks ?? []).map((s) =>
+      s.id === subtaskId ? { ...s, completed: !s.completed } : s
+    );
+    await handleSubtasksChange(taskId, next);
+  };
+
   // Composite-task checklist: persist micro-steps and auto-complete the
   // parent task when every step is checked (and revert if a step is
   // unchecked while it was auto-completed). Points are derived from
   // completed tasks, so no ledger write is needed — the balance follows.
   const handleSubtasksChange = async (taskId: string, subtasks: import("./types").SubTask[]) => {
     if (!todayDay) return;
-    const updatedTasks = todayDay.tasks.map((t) => {
-      if (t.id !== taskId) return t;
-      const hasSubs = subtasks.length > 0;
-      const allDone = hasSubs && subtasks.every((s) => s.completed);
-      const next: Task = { ...t, subtasks };
-      if (hasSubs) {
-        // Parent completion mirrors the checklist while it has steps.
-        if (allDone && !t.completed) { next.completed = true; next.completedAt = Date.now(); }
-        else if (!allDone && t.completed) { next.completed = false; next.completedAt = null; }
-      }
-      return next;
-    });
+    const updatedTasks = todayDay.tasks.map((t) =>
+      t.id === taskId ? applySubtasks(t, subtasks) : t
+    );
     const updatedDay = touch({ ...todayDay, tasks: updatedTasks });
     setTodayDay(updatedDay);
     await saveDay(updatedDay);
@@ -1548,8 +1573,23 @@ export default function App() {
             className="w-full flex justify-center"
             id={`view-transition-wrapper-${currentView}`}
           >
-            {currentView === "main" && todayDay && (
+            {currentView === "main" && todayDay && viewMode === "board" && (
+              <div className="w-full flex flex-col gap-4" id="main-board-viewbox">
+                <ViewToggle mode={viewMode} onChange={changeViewMode} />
+                <p className="text-center font-mono text-[11px] text-slate-400">{todayDay.date}</p>
+                <KanbanBoard
+                  day={todayDay}
+                  onTasksChange={handleBoardTasksChange}
+                  onToggleSubtask={handleToggleSubtaskById}
+                />
+              </div>
+            )}
+
+            {currentView === "main" && todayDay && viewMode === "postit" && (
               <div className="relative w-full max-w-md" id="main-view-viewbox">
+                <div className="mb-4">
+                  <ViewToggle mode={viewMode} onChange={changeViewMode} />
+                </div>
                 {/* Crumpling anim wrapper */}
                 <motion.div
                   id="main-animated-postit-wrapper"

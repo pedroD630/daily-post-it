@@ -51,7 +51,7 @@ export function countEvidenceForBeliefs(
   for (const day of allDays) {
     if (day.discarded) continue;
     for (const task of day.tasks) {
-      if (!task.completed || !task.text.trim()) continue;
+      if (task.status !== "done" || !task.text.trim()) continue;
       for (const belief of beliefs) {
         if (taskMatchesBelief(task.text, belief)) {
           counts.set(belief.id, (counts.get(belief.id) ?? 0) + 1);

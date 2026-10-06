@@ -37,7 +37,7 @@ export function computeTaskPoints(days: Day[]): number {
   for (const day of days) {
     if (day.discarded) continue; // crumpled snapshots don't double-count
     for (const task of day.tasks) {
-      if (task.completed) total += pointValue(task.style.penColor);
+      if (task.status === "done") total += pointValue(task.style.penColor);
     }
   }
   return total;

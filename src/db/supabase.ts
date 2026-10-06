@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { getAuth } from "firebase/auth";
 import { AffirmationList, Belief, Checkpoint, Day, Goal, Habit, Task } from "../types";
+import { normalizeTaskStatus } from "../constants/taskStatus";
 
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || "";
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || "";
@@ -88,7 +89,12 @@ export async function syncDayToSupabase(day: Day, userId: string): Promise<boole
         day_id: day.id,
         user_id: userId,
         text: task.text,
-        completed: task.completed,
+        status: task.status,
+        // Written alongside `status` on purpose: a device still on the old
+        // build reads this column, and if migration 015 hasn't run the
+        // fallback below drops `status` and the task still syncs as
+        // done/not-done instead of failing.
+        completed: task.status === "done",
         completed_at: task.completedAt,
         created_at: task.createdAt,
         sort_order: task.order !== undefined ? task.order : 0,
@@ -104,21 +110,43 @@ export async function syncDayToSupabase(day: Day, userId: string): Promise<boole
       });
 
       // Backwards-compat: strip columns whose migration hasn't been run yet.
-      if (tasksErr && (tasksErr.code === "PGRST204" || /column|subtasks|updated_at|deleted/i.test(tasksErr.message || ""))) {
-        const msg = (tasksErr.message || "").toLowerCase();
-        const dropSubtasks = msg.includes("subtasks");
-        const dropSync = msg.includes("updated_at") || msg.includes("deleted");
-        if (dropSubtasks) console.warn("Supabase 'subtasks' column missing — run migration 010_task_subtasks.sql.");
-        if (dropSync) console.warn("Supabase task sync columns missing — run migration 013_task_sync.sql.");
+      const isColumnError = (e: any) =>
+        e && (e.code === "PGRST204" || /column|subtasks|updated_at|deleted|status/i.test(e.message || ""));
 
-        const stripped = dbTasks.map((t) => {
+      if (isColumnError(tasksErr)) {
+        const msg = (tasksErr!.message || "").toLowerCase();
+        const named = {
+          subtasks: msg.includes("subtasks"),
+          sync: msg.includes("updated_at") || msg.includes("deleted"),
+          status: msg.includes("status"),
+        };
+        // PostgREST names a single missing column, so when it names none of
+        // ours we can't tell which migration is missing — drop them all.
+        const anyNamed = named.subtasks || named.sync || named.status;
+        const drop = anyNamed ? named : { subtasks: true, sync: true, status: true };
+
+        if (drop.subtasks) console.warn("Supabase 'subtasks' column missing — run migration 010_task_subtasks.sql.");
+        if (drop.sync) console.warn("Supabase task sync columns missing — run migration 013_task_sync.sql.");
+        if (drop.status) console.warn("Supabase 'status' column missing — run migration 015_task_status.sql. Tarefas sincronizam só como feitas/não feitas até lá.");
+
+        const strip = (d: typeof drop) => dbTasks.map((t) => {
           const row: Record<string, unknown> = { ...t };
-          // When we can't tell which column is missing, drop all optional ones.
-          if (dropSubtasks || !dropSync) delete row.subtasks;
-          if (dropSync || !dropSubtasks) { delete row.updated_at; delete row.deleted; }
+          if (d.subtasks) delete row.subtasks;
+          if (d.sync) { delete row.updated_at; delete row.deleted; }
+          if (d.status) delete row.status;
           return row;
         });
-        ({ error: tasksErr } = await supabase.from("tasks").upsert(stripped, { onConflict: "id" }));
+
+        ({ error: tasksErr } = await supabase.from("tasks").upsert(strip(drop), { onConflict: "id" }));
+
+        // More than one migration can be missing at once, and the first error
+        // only named one of them. Fall back to the lowest common denominator.
+        if (isColumnError(tasksErr) && anyNamed) {
+          console.warn("Supabase: mais de uma migration de tasks pendente — enviando só as colunas básicas.");
+          ({ error: tasksErr } = await supabase
+            .from("tasks")
+            .upsert(strip({ subtasks: true, sync: true, status: true }), { onConflict: "id" }));
+        }
 
         // Without a `deleted` column the cloud can't carry tombstones, so
         // propagate those deletions as an id-scoped hard delete. Still only
@@ -259,7 +287,9 @@ export async function pullAllDaysFromSupabase(userId: string): Promise<Day[]> {
         parentDay.tasks.push({
           id: t.id,
           text: t.text || "",
-          completed: !!t.completed,
+          // A device still on the old build writes `completed` and no
+          // `status`, so derive rather than trusting the column exists.
+          status: normalizeTaskStatus(t).status,
           completedAt: t.completed_at ? Number(t.completed_at) : null,
           createdAt: Number(t.created_at || Date.now()),
           order: t.sort_order !== undefined ? t.sort_order : 0,

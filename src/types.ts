@@ -10,11 +10,21 @@ export interface SubTask {
   completed: boolean;
 }
 
+/**
+ * Where a task stands. Replaces the old `completed: boolean`, which couldn't
+ * express the Kanban's four columns.
+ *
+ * `skipped` is always an explicit user choice — "I decided not to do this",
+ * which is a different statement from "I ran out of time". Nothing moves a
+ * task there automatically.
+ */
+export type TaskStatus = "todo" | "doing" | "done" | "skipped";
+
 export interface Task {
   id: string;            // unique identifier (e.g. crypto.randomUUID())
   text: string;
-  completed: boolean;
-  completedAt: number | null;
+  status: TaskStatus;
+  completedAt: number | null;  // set on entering "done", cleared on leaving
   createdAt: number;
   order: number;         // sort index
   style: {
