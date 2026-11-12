@@ -7,7 +7,7 @@ import React, { useState, useEffect } from "react";
 import { Day } from "../types";
 import PostItCard from "./PostItCard";
 import { AnimatePresence, motion } from "motion/react";
-import { ChevronLeft, ChevronRight, Info } from "lucide-react";
+import { ChevronLeft, ChevronRight, Info, Pencil, Check } from "lucide-react";
 import type { PaperTextureConfig } from "../constants/palettes";
 
 interface HistoryViewProps {
@@ -16,12 +16,23 @@ interface HistoryViewProps {
   textureConfig?: PaperTextureConfig;
   /** When set, the view opens focused on the day with this id (palette jump). */
   focusDayId?: string | null;
+  /**
+   * Ticks or unticks a task on a past day. Absent = history stays read-only.
+   * Only completion travels through here: a past day's tasks can't be added,
+   * edited, reordered or deleted — the record of what the day held stands.
+   */
+  onToggleHistoryTask?: (dayId: string, taskId: string) => void;
 }
 
-export default function HistoryView({ historyDays, paperTexture = true, textureConfig, focusDayId }: HistoryViewProps) {
+export default function HistoryView({ historyDays, paperTexture = true, textureConfig, focusDayId, onToggleHistoryTask }: HistoryViewProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [swipeDirection, setSwipeDirection] = useState<"left" | "right">("left");
   const [showHint, setShowHint] = useState(true);
+  const [editing, setEditing] = useState(false);
+
+  // Leaving a day closes the editor, so the pencil never stays armed on a
+  // day the user only swiped past.
+  useEffect(() => { setEditing(false); }, [currentIndex]);
 
   // Jump straight to a specific day when asked (e.g. from the command palette)
   useEffect(() => {
@@ -118,6 +129,32 @@ export default function HistoryView({ historyDays, paperTexture = true, textureC
       id="history-view-layout"
       className="w-full max-w-md mx-auto flex flex-col items-center justify-start py-8 px-4 select-none"
     >
+      {/* Edit toggle — only offered when the parent wired a handler */}
+      {onToggleHistoryTask && (
+        <div className="w-full flex items-center justify-end gap-2 mb-2 px-2">
+          {editing && (
+            <span className="font-mono text-[11px] text-amber-600 dark:text-amber-400">
+              marque ou desmarque as tarefas
+            </span>
+          )}
+          <button
+            id="history-edit-toggle"
+            type="button"
+            aria-pressed={editing}
+            aria-label={editing ? "Concluir edição" : "Editar conclusões deste dia"}
+            title={editing ? "Concluir edição" : "Editar conclusões deste dia"}
+            onClick={() => setEditing((v) => !v)}
+            className={`flex items-center justify-center w-9 h-9 rounded-xl border transition-colors cursor-pointer ${
+              editing
+                ? "bg-amber-500 border-amber-500 text-white shadow-sm"
+                : "bg-white/70 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700 text-slate-500 hover:text-slate-700 dark:hover:text-slate-200"
+            }`}
+          >
+            {editing ? <Check className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
+          </button>
+        </div>
+      )}
+
       {/* Swipeable card container stack with wind physics */}
       <div className="relative w-full aspect-square flex items-center justify-center p-2 mb-6" id="history-card-relative-container">
         <AnimatePresence mode="popLayout" custom={swipeDirection}>
@@ -128,7 +165,9 @@ export default function HistoryView({ historyDays, paperTexture = true, textureC
             initial="initial"
             animate="animate"
             exit="exit"
-            drag="x"
+            // Swiping is off while editing: a tap on a checkbox can read as a
+            // tiny drag, and losing the day mid-edit would be maddening.
+            drag={editing ? false : "x"}
             dragConstraints={{ left: 0, right: 0 }}
             dragElastic={0.15}
             onDragEnd={(event, info) => {
@@ -149,6 +188,8 @@ export default function HistoryView({ historyDays, paperTexture = true, textureC
             <PostItCard
               day={currentDay}
               readOnly={true}
+              allowToggleComplete={editing}
+              onToggleComplete={(taskId) => onToggleHistoryTask?.(currentDay.id, taskId)}
               activeDeleteId={null}
               setActiveDeleteId={() => {}}
               paperTexture={paperTexture}

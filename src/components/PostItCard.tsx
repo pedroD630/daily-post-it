@@ -25,6 +25,8 @@ interface PostItCardProps {
   onSubtasksChange?: (id: string, subtasks: import("../types").SubTask[]) => void;
   onReorderTasks?: (tasks: Task[]) => void;
   readOnly?: boolean;
+  /** Only meaningful with `readOnly`: lets the checkbox stay live. */
+  allowToggleComplete?: boolean;
   activeDeleteId: string | null;
   setActiveDeleteId: (id: string | null) => void;
   calendarEvents?: any[];
@@ -62,6 +64,7 @@ export default function PostItCard({
   onSubtasksChange,
   onReorderTasks,
   readOnly = false,
+  allowToggleComplete = false,
   activeDeleteId,
   setActiveDeleteId,
   calendarEvents = [],
@@ -271,6 +274,7 @@ export default function PostItCard({
                 onDelete={onDelete}
                 onSubtasksChange={onSubtasksChange}
                 readOnly={readOnly}
+                allowToggleComplete={allowToggleComplete}
                 isNew={false}
                 activeDeleteId={activeDeleteId}
                 setActiveDeleteId={setActiveDeleteId}

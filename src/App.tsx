@@ -1029,6 +1029,36 @@ export default function App() {
     await saveDayWithSync(updatedDay);
   };
 
+  /**
+   * Tick / untick a task on a past day, from the history editor.
+   *
+   * Only the status moves — done ⇄ todo, the same binary the post-it
+   * checkbox speaks. Nothing here can add, rename, reorder or remove a task:
+   * a past day is a record, and the one thing worth correcting after the
+   * fact is whether something actually got done.
+   *
+   * Everything derived from history (points, streak, goal frequency, belief
+   * evidence, insights) reads the days straight from IndexedDB, so it all
+   * follows from this write without extra bookkeeping.
+   */
+  const handleToggleHistoryTask = async (dayId: string, taskId: string) => {
+    const day = allDaysList.find((d) => d.id === dayId);
+    if (!day) return;
+
+    const task = day.tasks.find((t) => t.id === taskId);
+    if (!task) return;
+
+    const updatedDay: Day = {
+      ...day,
+      tasks: day.tasks.map((t) =>
+        t.id === taskId ? withStatus(t, t.status === "done" ? "todo" : "done") : t
+      ),
+    };
+
+    const stamped = await saveDayWithSync(updatedDay);
+    setAllDaysList((prev) => prev.map((d) => (d.id === stamped.id ? stamped : d)));
+  };
+
   /** Kanban move/reorder. Same persistence path as the post-it reorder. */
   const handleBoardTasksChange = async (updatedTasks: Task[]) => {
     if (!todayDay) return;
@@ -1677,6 +1707,7 @@ export default function App() {
                 paperTexture={settings.paperTexture}
                 textureConfig={getPaletteById(settings.paletteId).texture}
                 focusDayId={historyFocusDayId}
+                onToggleHistoryTask={handleToggleHistoryTask}
               />
             )}
 

@@ -22,6 +22,12 @@ interface TaskItemProps {
   /** Persist the checklist of micro-steps for a composite task. */
   onSubtasksChange?: (id: string, subtasks: SubTask[]) => void;
   readOnly?: boolean;
+  /**
+   * Narrow escape hatch from `readOnly`: re-enables ONLY the checkbox.
+   * Used by the history editor, where a past day can be ticked and unticked
+   * but its text, order and — deliberately — its tasks themselves stay put.
+   */
+  allowToggleComplete?: boolean;
   isNew?: boolean;
   activeDeleteId: string | null;
   setActiveDeleteId: (id: string | null) => void;
@@ -36,6 +42,7 @@ export default function TaskItem({
   onDelete = (id: string) => {},
   onSubtasksChange,
   readOnly = false,
+  allowToggleComplete = false,
   isNew = false,
   activeDeleteId,
   setActiveDeleteId
@@ -276,7 +283,7 @@ export default function TaskItem({
         <div className="relative mr-3 shrink-0" style={{ width: "1.25rem", height: "1.25rem" }}>
           <button
             id={`task-checkbox-${task.id}`}
-            disabled={readOnly}
+            disabled={readOnly && !allowToggleComplete}
             aria-label={isDoneStatus ? "Mark task as incomplete" : "Mark task as complete"}
             onClick={(e) => {
               e.stopPropagation();
