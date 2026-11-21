@@ -242,25 +242,57 @@ export async function pullPointsBalanceFromSupabase(
 }
 
 /**
+ * Reads every row of a table for one user, in pages.
+ *
+ * PostgREST caps a response at `db-max-rows` (1000 on Supabase) and reports
+ * NO error when it truncates — the request just succeeds with part of the
+ * data. A plain `.select("*")` therefore starts losing rows silently once a
+ * table passes a thousand, which is what happened to `tasks`: 2375 rows in
+ * the database, ~1000 delivered, the rest simply absent on any device that
+ * re-pulled. Nothing failed, so the app went on reporting "synced".
+ *
+ * Paging needs a deterministic order or rows repeat or get skipped between
+ * pages, hence the explicit order by primary key.
+ *
+ * Returns the same `{ data, error }` shape as a direct query so callers keep
+ * their own missing-table handling.
+ */
+const PAGE_SIZE = 1000;
+const MAX_PAGES = 200; // ~200k rows; guard against an endless loop
+
+export async function fetchAllRowsForUser(
+  table: string,
+  userId: string,
+  orderColumn = "id"
+): Promise<{ data: any[]; error: any }> {
+  if (!supabase) return { data: [], error: null };
+  const rows: any[] = [];
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const from = page * PAGE_SIZE;
+    const { data, error } = await supabase
+      .from(table)
+      .select("*")
+      .eq("user_id", userId)
+      .order(orderColumn, { ascending: true })
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) return { data: rows, error };
+    const batch = data ?? [];
+    rows.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+  }
+  return { data: rows, error: null };
+}
+
+/**
  * Pull all data from Supabase for a given user and format it into Day entities.
  */
 export async function pullAllDaysFromSupabase(userId: string): Promise<Day[]> {
   if (!supabase) return [];
   try {
-    // Fetch days
-    const { data: dbDays, error: daysErr } = await supabase
-      .from("days")
-      .select("*")
-      .eq("user_id", userId);
-    
+    const { data: dbDays, error: daysErr } = await fetchAllRowsForUser("days", userId);
     if (daysErr) throw daysErr;
 
-    // Fetch tasks
-    const { data: dbTasks, error: tasksErr } = await supabase
-      .from("tasks")
-      .select("*")
-      .eq("user_id", userId);
-    
+    const { data: dbTasks, error: tasksErr } = await fetchAllRowsForUser("tasks", userId);
     if (tasksErr) throw tasksErr;
 
     const daysMap = new Map<string, Day>();
@@ -379,10 +411,7 @@ export async function deleteGoalFromSupabase(goalId: string, userId: string): Pr
 export async function pullAllGoalsFromSupabase(userId: string): Promise<Goal[]> {
   if (!supabase) return [];
   try {
-    const { data, error } = await supabase
-      .from("goals")
-      .select("*")
-      .eq("user_id", userId);
+    const { data, error } = await fetchAllRowsForUser("goals", userId);
     if (error) {
       if (isMissingGoalsTable(error)) {
         console.warn("Supabase 'goals' table missing — run migration 005_goals.sql.");
@@ -474,7 +503,7 @@ export async function deleteCheckpointFromSupabase(id: string, userId: string): 
 export async function pullAllCheckpointsFromSupabase(userId: string): Promise<Checkpoint[]> {
   if (!supabase) return [];
   try {
-    const { data, error } = await supabase.from("checkpoints").select("*").eq("user_id", userId);
+    const { data, error } = await fetchAllRowsForUser("checkpoints", userId);
     if (error) {
       if (isMissingCheckpointsTable(error)) {
         console.warn("Supabase 'checkpoints' table missing — run migration 007_checkpoints.sql.");
@@ -544,7 +573,7 @@ export async function syncHabitToSupabase(habit: Habit, userId: string): Promise
 export async function pullAllHabitsFromSupabase(userId: string): Promise<Habit[]> {
   if (!supabase) return [];
   try {
-    const { data, error } = await supabase.from("habits").select("*").eq("user_id", userId);
+    const { data, error } = await fetchAllRowsForUser("habits", userId);
     if (error) {
       if (isMissingHabitsTable(error)) {
         console.warn("Supabase 'habits' table missing — run migration 009_habits.sql.");
@@ -610,7 +639,7 @@ export async function syncBeliefToSupabase(belief: Belief, userId: string): Prom
 export async function pullAllBeliefsFromSupabase(userId: string): Promise<Belief[]> {
   if (!supabase) return [];
   try {
-    const { data, error } = await supabase.from("beliefs").select("*").eq("user_id", userId);
+    const { data, error } = await fetchAllRowsForUser("beliefs", userId);
     if (error) {
       if (isMissingBeliefsTable(error)) {
         console.warn("Supabase 'beliefs' table missing — run migration 011_beliefs.sql.");
