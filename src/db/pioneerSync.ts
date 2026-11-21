@@ -18,7 +18,7 @@
  * `deleted` tombstone.
  */
 
-import { supabase } from "./supabase";
+import { supabase, fetchAllRowsForUser } from "./supabase";
 import { BibleStudyCount, FieldEntry, MonthlyReport } from "../types";
 import {
   getAllFieldEntriesRaw, getAllMonthlyReportsRaw, getAllBibleStudies,
@@ -148,7 +148,7 @@ export async function syncPioneerData(userId: string): Promise<void> {
 
 async function mergeFieldEntries(userId: string): Promise<void> {
   try {
-    const { data, error } = await supabase!.from("field_entries").select("*").eq("user_id", userId);
+    const { data, error } = await fetchAllRowsForUser("field_entries", userId);
     if (error) {
       if (isMissingTable(error)) { warnMissing("field_entries"); return; }
       throw error;
@@ -186,7 +186,7 @@ async function mergeFieldEntries(userId: string): Promise<void> {
 
 async function mergeMonthlyReports(userId: string): Promise<void> {
   try {
-    const { data, error } = await supabase!.from("monthly_reports").select("*").eq("user_id", userId);
+    const { data, error } = await fetchAllRowsForUser("monthly_reports", userId);
     if (error) {
       if (isMissingTable(error)) { warnMissing("monthly_reports"); return; }
       throw error;
@@ -226,7 +226,7 @@ async function mergeMonthlyReports(userId: string): Promise<void> {
 
 async function mergeBibleStudies(userId: string): Promise<void> {
   try {
-    const { data, error } = await supabase!.from("bible_studies").select("*").eq("user_id", userId);
+    const { data, error } = await fetchAllRowsForUser("bible_studies", userId);
     if (error) {
       if (isMissingTable(error)) { warnMissing("bible_studies"); return; }
       throw error;
